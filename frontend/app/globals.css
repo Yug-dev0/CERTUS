@@ -1,0 +1,2313 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+/* The Hi-Vis motion system: hv-tick, hv-roll, hv-scan, hv-lock, hv-trace,
+   hv-seal, hv-caret, each with its reduced-motion fallback. */
+@import './hv-motion.css';
+
+@custom-variant dark (&:is([data-theme='dark'] *));
+
+/* ------------------------------------------------------------------ */
+/* Sovereign Workbench design tokens                                   */
+/* ------------------------------------------------------------------ */
+/* [data-theme='light'] carries the light tokens too, so a part of a page
+   can keep the light ground inside a dark one -- the public page does. */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* surfaces */
+  --background: #faf9f6;
+  --surface: #ffffff;
+  --surface-sunken: #f2f1ec;
+
+  /* text */
+  --foreground: #141413;
+  --foreground-secondary: #5d5c58;   /* 6.5:1 on ivory */
+  --foreground-muted: #74726d;       /* 4.6:1 on ivory. Recall's own ink3 is 42%
+                                        ink, about 2.8:1; small labels here are
+                                        read, so this one clears AA. */
+
+  /* lines */
+  --border: #dcdad6;
+  --grid: #eceae6;
+
+  /* dark contrast */
+  --ink: #090909;
+  --ink-foreground: #f5f5f2;
+  --ink-muted: #9a978f;
+  --ink-border: #242422;
+
+  /* status */
+  --sovereign: #16a34a;
+  --active: #0284c7;
+  --approval: #d97706;
+  --critical: #dc2626;
+
+  --radius: 2px;
+
+  /* shadcn compatibility mappings */
+  --card: var(--surface);
+  --popover: var(--surface);
+  --primary: #141413;
+  --secondary: var(--surface-sunken);
+  --muted: var(--surface-sunken);
+  --accent: var(--surface-sunken);
+  /* ------------------------------------------------------------------ */
+  /* ACTION: ink.                                                        */
+  /*                                                                     */
+  /* The primary control is the page's own ink -- a near-black pill on   */
+  /* ivory, an ivory pill at night -- the way the calmest AI products    */
+  /* set theirs. Colour is left to the four states, so a hue on screen   */
+  /* always means something the system found. --action-text is the ink   */
+  /* a link or an accent phrase uses.                                    */
+  /* ------------------------------------------------------------------ */
+  --action: #141413;
+  --action-hover: #2e2d2a;
+  --action-text: #141413;
+  --action-ink: #faf9f6;
+  /* ------------------------------------------------------------------ */
+  --input: var(--border);
+
+  /* ------------------------------------------------------------------ */
+  /* Status — text variants.                                             */
+  /*                                                                     */
+  /* The four status colours are fills. Used as text on paper they fail: */
+  /*   --sovereign #16a34a  3.07:1   --active   #0284c7  3.82:1          */
+  /*   --approval  #d97706  2.97:1   --critical #dc2626  4.50:1          */
+  /* Only critical clears AA body text, and approval fails even the 3:1  */
+  /* non-text threshold. White on an approval fill is 3.19:1, which is   */
+  /* unreadable, so an amber badge with white text could not be read at  */
+  /* all.                                                                */
+  /*                                                                     */
+  /* Grafana and Temporal both ship a separate `text` value per status   */
+  /* for exactly this reason. Each variant below holds the base hue and  */
+  /* chroma in OKLCH and lowers lightness to ~L 0.50, so all four share  */
+  /* an optical weight, then snaps to the nearest in-gamut sRGB hex.     */
+  /* Hue drift from the base is at most 2.9 degrees: the same colour,    */
+  /* darker.                                                             */
+  /*                                                                     */
+  /* Shipped as literal hex, not as a live oklch(from ...) expression.   */
+  /* At this lightness all four fall outside sRGB, so the browser would  */
+  /* gamut-map them and the shipped ratio would not be the proved one.   */
+  /*                                                                     */
+  /* Measured (WCAG 2.x), recomputed independently against               */
+  /* --background #f7f7f5:                                               */
+  /* ------------------------------------------------------------------ */
+  --sovereign-text: #0b7434;   /* 5.50:1 on paper — was 3.07 */
+  --active-text:    #08689f;   /* 5.61:1 on paper — was 3.82 */
+  --approval-text:  #9a4f04;   /* 5.60:1 on paper — was 2.97, the outright failure */
+  --critical-text:  #b91c1c;   /* 6.03:1 on paper — was 4.50 */
+
+  /* Text ON a solid status fill. A status fill may carry a glyph or a
+     short mono label and nothing else; prose never sits on one. */
+  --on-sovereign: #0a0a0a;   /* 6.01:1 on #16a34a. White would be 3.30. */
+  --on-active:    #0a0a0a;   /* 4.83:1 on #0284c7. White would be 4.10. */
+  --on-approval:  #0a0a0a;   /* 6.21:1 on #d97706. White would be 3.19 — unreadable. */
+  --on-critical:  #ffffff;   /* 4.83:1 on #dc2626. Ink would be 4.10. Critical is the
+                                one status whose glyph inverts, which is correct: it
+                                is the one that must never be mistaken for another,
+                                and the inversion is a free non-hue channel. */
+
+  /* Usage rule, no third case: the four base status colours are for
+     fills, rings, markers, rails and glyphs. A status colour applied to
+     a text node uses its -text variant. */
+
+  /* ------------------------------------------------------------------ */
+  /* Lines.                                                              */
+  /*                                                                     */
+  /* Supabase derives every hairline from the ink colour at half chroma  */
+  /* and low alpha, so rules inherit the page's warmth instead of        */
+  /* reading grey. Done naively here it fails: --foreground is #0a0a0a,  */
+  /* chroma 0.0000, so deriving from it yields grey rules on warm paper. */
+  /* The donor is therefore its own token, and its hue is measured off   */
+  /* the palette the product already ships — --border #dcdad6 is         */
+  /* oklch(0.8888 0.0059 84.57), so h = 84.57.                           */
+  /*                                                                     */
+  /* Dividers and control edges are split, which is Linear's arrangement */
+  /* and the one structural gap in the old single --border: a table rule */
+  /* and an input border are doing different jobs and want different     */
+  /* weights.                                                            */
+  /* ------------------------------------------------------------------ */
+  --line-ink: oklch(0.275 0.0255 84.57);   /* donor only, never painted */
+  --line-chroma: 0.54;
+  --contrast-lines: 0;                     /* one knob, every hairline; 0 -> 1 */
+
+  /* dividers, table rules, grid — lighter than control edges */
+  --line-subtle:  oklch(from var(--line-ink) l calc(c * var(--line-chroma)) h
+                        / calc(6%  + 5%  * var(--contrast-lines)));
+  --line-default: oklch(from var(--line-ink) l calc(c * var(--line-chroma)) h
+                        / calc(14% + 10% * var(--contrast-lines)));
+  --line-strong:  oklch(from var(--line-ink) l calc(c * var(--line-chroma)) h
+                        / calc(24% + 16% * var(--contrast-lines)));
+
+  /* control edges — inputs, buttons, chips. Deliberately darker. */
+  --control-subtle:  oklch(from var(--line-ink) l calc(c * var(--line-chroma)) h
+                           / calc(10% + 8%  * var(--contrast-lines)));
+  --control-default: oklch(from var(--line-ink) l calc(c * var(--line-chroma)) h
+                           / calc(18% + 12% * var(--contrast-lines)));
+  --control-strong:  oklch(from var(--line-ink) l calc(c * var(--line-chroma)) h
+                           / calc(30% + 18% * var(--contrast-lines)));
+
+  /* Legacy names resolve through the new family, so every existing
+     className keeps working and all hairlines now move together. */
+  --grid:          var(--line-subtle);
+  --border:        var(--control-default);
+
+  /* ------------------------------------------------------------------ */
+  /* Status surfaces and borders — derived, never hand-picked.           */
+  /* Safe as live oklch(from ...) because only alpha changes, so no      */
+  /* gamut mapping can occur.                                            */
+  /* ------------------------------------------------------------------ */
+  --sovereign-surface: oklch(from var(--sovereign) l c h / 8%);
+  --active-surface:    oklch(from var(--active)    l c h / 8%);
+  --approval-surface:  oklch(from var(--approval)  l c h / 8%);
+  --critical-surface:  oklch(from var(--critical)  l c h / 8%);
+  --approval-border:   oklch(from var(--approval)  l c h / 30%);
+  --critical-border:   oklch(from var(--critical)  l c h / 30%);
+
+  /* Selection is deliberately not the interactive accent — ink is the
+     one value that is never a status, so "selected" never reads as
+     "link". */
+  --selected-rail:    var(--foreground);
+  --selected-surface: var(--surface-sunken);
+
+  /* A light scrim, not black. A black overlay makes paper-coloured UI
+     look cheap; Vercel dims a light interface with a light scrim. */
+  --scrim: color-mix(in srgb, #efeeea 80%, transparent);
+
+  --opacity-disabled: 0.32;   /* keeps hue, recedes, does not turn to mud */
+  --opacity-dim: 0.45;        /* selecting one thing dims the rest */
+
+  /* ------------------------------------------------------------------ */
+  /* Type. Sizes and line-heights are even integers so baselines land    */
+  /* on a shared grid. Tracking splits at 16px: negative above, zero in  */
+  /* the middle, positive below, because small type is what a projector  */
+  /* loses. Role names rather than sizes — the components currently      */
+  /* hardcode [9px]..[15px] in roughly 344 places.                       */
+  /*                                                                     */
+  /* Named --size-*, not --text-*: Tailwind v4 owns the --text-*         */
+  /* namespace and writes it back into :root, so declaring both here     */
+  /* and in @theme inline would be circular. The mapping is below.       */
+  /* ------------------------------------------------------------------ */
+  --size-display: 32px; --lh-display: 36px;
+  --size-title:   20px; --lh-title:   28px; --ls-title:   -0.015em;
+  --size-heading: 16px; --lh-heading: 24px; --ls-heading: -0.01em;
+  --size-answer:  15px; --lh-answer:  24px;
+  --size-body:    13px; --lh-body:    20px; --ls-body:    0;
+  --size-ui:      12px; --lh-ui:      16px;
+  --size-meta:    11px; --lh-meta:    16px; --ls-meta:    0.01em;
+  --size-ledger:  10px; --lh-ledger:  14px; --ls-ledger:  0.06em;
+
+  /* Geist Sans is variable, so Linear's non-integer stops are available.
+     510 lifts a label without making it shout. Nothing in the product
+     surface goes above 590. */
+  --weight-normal: 400;
+  --weight-medium: 510;
+  --weight-strong: 590;
+
+  /* Mono regular is 425, not 400: a monospace face at the same nominal
+     weight reads lighter beside its sans counterpart, so a run id in 400
+     looks washed out next to a 400 sans label. */
+  --weight-mono:     425;
+
+  /* ------------------------------------------------------------------ */
+  /* Display serif.                                                      */
+  /*                                                                     */
+  /* Instrument Serif, for the one italic word on the empty thread.
+     Bundled as woff2 in app/fonts and loaded through next/font/local: the
+     product is sold as air-gapped, so neither the build nor the page
+     reaches a font server. The fallbacks degrade to the host's serif.    */
+  /* ------------------------------------------------------------------ */
+  --font-serif: var(--font-instrument), 'New York', ui-serif, Georgia, serif;
+
+  /* ------------------------------------------------------------------ */
+  /* Spacing, radii, control sizes, density.                             */
+  /* ------------------------------------------------------------------ */  --space-2: 4px;  --space-3: 6px;
+  --space-4: 8px;  --space-5: 12px; --space-6: 16px; --space-7: 20px;
+
+  /* House radius stays 4px. The rest exist for nesting: an inner radius
+     is the outer radius minus the padding. */
+  --radius-xs: 2px;
+  --radius-sm-token: 2px;
+  --radius-md-token: 3px;    /* floating: menu, popover, toast */
+  --radius-lg-token: 4px;    /* sheets, modals, the composer */
+  --radius-menu-row: 2px;
+
+  /* Exactly three control sizes, so no component invents a fourth. */
+  --control-sm: 32px;
+  --control-md: 36px;
+  --control-lg: 40px;
+
+  /* Two row scales, by job. */
+
+  /* Density is the primary expressive tool once hue is fixed. */
+  --pad-comfortable: 12px;
+
+  /* ------------------------------------------------------------------ */
+  /* Elevation — rings, not borders.                                     */
+  /*                                                                     */
+  /* Every ring is a box-shadow so it does not consume layout: a 36px    */
+  /* row stays 36px and hover never shifts it by a pixel. Each floating  */
+  /* rung ends with an opaque ring in the page colour — translucent      */
+  /* black outside, opaque paper inside — which is what makes a menu     */
+  /* read as a physical object rather than a rectangle with a shadow.    */
+  /* Alpha falls as elevation rises: big soft shadows must be fainter.   */
+  /* ------------------------------------------------------------------ */
+  --elev-0: 0 0 0 1px var(--line-default);
+
+  --elev-1:
+    0 0 0 1px oklch(0.2 0.006 80 / 0.10),
+    0 1px 2px oklch(0.17 0.006 60 / 0.05),
+    0 0 0 1px var(--background);
+
+  --elev-2:
+    0 0 0 1px oklch(0.2 0.006 80 / 0.11),
+    0 1px 2px oklch(0.17 0.006 60 / 0.05),
+    0 24px 70px -32px oklch(0.17 0.006 60 / 0.30),
+    0 0 0 1px var(--surface);
+
+  --elev-3:
+    0 0 0 1px oklch(0.2 0.006 80 / 0.12),
+    0 3px 8px -2px oklch(0.17 0.006 60 / 0.10),
+    0 50px 92px -36px oklch(0.17 0.006 60 / 0.42),
+    0 0 0 1px var(--surface);
+
+  /* One 1px inset under a raised row reads as a physical lip. */
+
+  /* ------------------------------------------------------------------ */
+  /* Focus — a gap ring: 2px of page colour, then 2px of ink.            */
+  /*                                                                     */
+  /* The gap is what makes a focus ring read as deliberate rather than   */
+  /* as a border that got thick. Ink rather than an accent hue:          */
+  /* --foreground on --background is 18.46:1. The old --ring #8a8783 was */
+  /* 3.33:1 on paper and 2.56:1 against --border, so it failed the 3:1   */
+  /* requirement against adjacent colours — it was decoration.           */
+  /* ------------------------------------------------------------------ */
+  --focus-gap: 2px;
+  --focus-ring:
+    0 0 0 var(--focus-gap) var(--surface),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+  --focus-ring-on-paper:
+    0 0 0 var(--focus-gap) var(--background),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+  --focus-ring-on-sunken:
+    0 0 0 var(--focus-gap) var(--surface-sunken),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+  --ring: var(--foreground);
+
+  /* Text fields are the one exception to the gap ring. A field already
+     carries a 1px edge, and a 2px page-coloured gap around a 40px input
+     reads as an error state rather than as focus. They get a soft ink
+     halo instead: the edge darkens to full ink and a wide, faint ink
+     spread sits outside it. Still ink, still no accent hue. */
+  --focus-halo:
+    0 0 0 1px var(--foreground),
+    0 0 0 4px oklch(from var(--foreground) l c h / 0.08);
+  --focus-halo-invalid:
+    0 0 0 1px var(--critical),
+    0 0 0 4px oklch(from var(--foreground) l c h / 0.08);
+
+  /* ------------------------------------------------------------------ */
+  /* Motion.                                                             */
+  /*                                                                     */
+  /* The hover pair is asymmetric, which is the highest-return change    */
+  /* available against the old stylesheet: a highlight appears in zero   */
+  /* milliseconds and decays over 150. Transitioning both directions is  */
+  /* what makes an interface feel laggy on hover.                        */
+  /* ------------------------------------------------------------------ */
+  /* THREE TIERS, by what the motion is FOR.                            */
+  /*                                                                    */
+  /* Six durations and five easings were in use, which is not a scale —  */
+  /* it is the residue of choosing at the call site. 90/160/240 are not  */
+  /* distinguishable to an eye that is reading, so three values that     */
+  /* differ by purpose carry more than six that differ by 70ms.          */
+  /*                                                                    */
+  /*   micro     feedback under the pointer: hover, press, a glyph       */
+  /*   standard  a thing changing state: a stage, a status, a value      */
+  /*   spatial   a thing occupying space: a rail, a drawer, a row        */
+  /*             opening out of the object that owns it                  */
+  /*                                                                    */
+  /* Spatial gets the decelerating curve because an object that moves    */
+  /* into place should arrive, not stop.                                 */
+  --micro:    120ms;
+  --standard: 200ms;
+  --spatial:  300ms;
+
+  --ease-micro:    cubic-bezier(0.2, 0, 0, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spatial:  cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* The old names resolve onto the three, so no existing rule has to be */
+  /* rewritten to obey the scale.                                        */
+  --dur-panel: var(--spatial);
+  --dur-hold:  480ms;    /* the denial settle — deliberately outside    */
+  --dur-seal:  640ms;    /* the certificate signature, used once        */
+
+  --hover-in:  0ms;
+  --hover-out: 150ms;
+
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit:  cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-move:  cubic-bezier(0.4, 0, 0.2, 1);
+
+  --stagger: 40ms;
+  --stagger-cap: 5;      /* a 40-row burst resolves in 440ms, not 1.6s */
+  --shift-sm: 4px;
+  --shift-md: 8px;
+
+  /* ------------------------------------------------------------------ */
+  /* Z-index. Menus sit ABOVE modals, deliberately: a select inside a    */
+  /* modal must not clip.                                                */
+  /* ------------------------------------------------------------------ */
+  --z-rail: 20;
+  --z-topbar: 40;
+  --z-drawer: 200;
+  --z-modal: 300;
+  --z-menu: 2001;
+  --z-toast: 5000;
+  --z-tooltip: 99999;
+}
+
+/* ==================================================================== */
+/* DARK                                                                  */
+/*                                                                       */
+/* Derived, not inverted. Every value below was computed and its         */
+/* contrast measured against all three grounds before it was written;    */
+/* the derivation is reproducible and the worst-case ratio is quoted on  */
+/* each line.                                                            */
+/*                                                                       */
+/* Four rules this follows, each of which is where naive dark themes     */
+/* fail:                                                                 */
+/*                                                                       */
+/*  1. The ground is not #000. Pure black with light text haloes, and it */
+/*     leaves nowhere to put a surface BELOW the base layer. It also     */
+/*     throws away the palette's warmth.                                 */
+/*  2. The warmth is kept. The light theme's hairlines were measured at  */
+/*     OKLCH hue 84.57 off --border #dcdad6; reusing that hue is what    */
+/*     stops this reading as generic cold slate.                         */
+/*  3. Status colours go LIGHTER here, not darker. The light theme       */
+/*     darkened them to ~L 0.50 to clear 4.5:1 on paper. On a dark       */
+/*     ground that is backwards.                                         */
+/*  4. Line alphas are NOT reused. A dark hairline on paper separates    */
+/*     strongly at 14%; light ink on a dark ground at 14% is mud, which  */
+/*     is the usual reason a dark theme feels indistinct.                */
+/* ==================================================================== */
+html[data-theme='dark'],
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Grounds. Elevation rises toward light, the opposite of the light
+     theme where a raised surface is whiter than paper but a sunken one
+     is greyer. */
+  --background: #070707;        /* hi-vis night: neutral, not warm */
+  --surface: #111111;           /* raised, one step above the ground */
+  --surface-sunken: #000000;    /* recessed */
+
+  /* Inks. Not pure white: #ffffff on a dark ground haloes, and leaves no
+     headroom above body text. Worst-case ratio across all three grounds
+     is quoted. */
+  --foreground: #f7f7f4;            /* 19.4:1 */
+  --foreground-secondary: #b8b8b2;  /*  9.9:1 */
+  --foreground-muted: #9a9a95;      /*  5.00:1 — clears AA body, which the
+                                       light theme's #8a8783 never did at
+                                       3.33:1 despite carrying most of the
+                                       small mono labels in the product. */
+
+  /* The contrast surface flips: "ink" now means the light panel. */
+  --ink: #f4f3f0;
+  --ink-foreground: #141413;
+  --ink-muted: #5f5b57;
+  --ink-border: #d8d5d0;
+
+  /* Ink inverted: the primary control is an ivory pill at night. */
+  /* Hi-Vis: the one accent. Lime means "you can act" or "this is cited". */
+  --action: #d4f24a;
+  --action-hover: #c3e236;
+  --action-text: #d4f24a;
+  --action-ink: #050505;
+
+  /* Status fills are unchanged — a fill is a fill on any ground. */
+
+  /* Status TEXT, recomputed for dark. Two of the four base colours turn
+     out to work as text here without modification, which is the exact
+     inverse of the light theme where all four failed. */
+  --sovereign-text: #4cc38a;   /* 8.9:1 on #070707 */
+  --active-text:    #8fb7d4;   /* 9.6:1 */
+  --approval-text:  #ffb224;   /* 11.0:1 */
+  --critical-text:  #ff5a4f;   /* 6.2:1 */
+
+  /* On-fill inks are unchanged: a solid fill's luminance did not move. */
+
+  /* Lines. The donor is now LIGHT and still warm, and the alphas are
+     solved rather than carried over. */
+  --line-ink: oklch(0.92 0 0);   /* neutral: hi-vis has no warm cast */
+
+  --line-subtle:  oklch(from var(--line-ink) l c h / calc(9%  + 6%  * var(--contrast-lines)));
+  --line-default: oklch(from var(--line-ink) l c h / calc(16% + 10% * var(--contrast-lines)));
+  --line-strong:  oklch(from var(--line-ink) l c h / calc(26% + 14% * var(--contrast-lines)));
+
+  /* Control edges are solved to clear WCAG 2.2's 3:1 for non-text, which
+     the divider ramp does not reach on this ground. --control-subtle is
+     deliberately below it and is only used where a fill or a label also
+     carries the affordance, never as a control's sole boundary. */
+  --control-subtle:  oklch(from var(--line-ink) l c h / calc(16% + 8%  * var(--contrast-lines)));
+  --control-default: oklch(from var(--line-ink) l c h / calc(39% + 10% * var(--contrast-lines)));  /* 3.03:1 */
+  --control-strong:  oklch(from var(--line-ink) l c h / calc(44% + 12% * var(--contrast-lines)));  /* 3.64:1 */
+
+  /* Status surfaces need more alpha to register against a dark ground. */
+  --sovereign-surface: oklch(from var(--sovereign) l c h / 14%);
+  --active-surface:    oklch(from var(--active)    l c h / 14%);
+  --approval-surface:  oklch(from var(--approval)  l c h / 14%);
+  --critical-surface:  oklch(from var(--critical)  l c h / 14%);
+  --approval-border:   oklch(from var(--approval)  l c h / 42%);
+  --critical-border:   oklch(from var(--critical)  l c h / 42%);
+
+  --selected-rail: var(--foreground);
+  --selected-surface: oklch(from var(--line-ink) l c h / 8%);
+
+  /* A dark scrim on a dark UI, where the light theme used a light one. */
+  --scrim: color-mix(in srgb, #050403 78%, transparent);
+
+  /* Elevation. A black shadow is invisible here, so the ring does the
+     separating and the shadow only adds depth beneath it. The opaque
+     inner ring is painted in the ground rather than in white. */
+  --elev-0: 0 0 0 1px var(--line-default);
+
+  --elev-1:
+    0 0 0 1px oklch(from var(--line-ink) l c h / 0.10),
+    0 1px 2px oklch(0 0 0 / 0.5),
+    0 0 0 1px var(--background);
+
+  --elev-2:
+    0 0 0 1px oklch(from var(--line-ink) l c h / 0.12),
+    0 2px 4px oklch(0 0 0 / 0.45),
+    0 8px 16px -6px oklch(0 0 0 / 0.55),
+    0 0 0 1px var(--surface);
+
+  --elev-3:
+    0 0 0 1px oklch(from var(--line-ink) l c h / 0.14),
+    0 12px 28px -12px oklch(0 0 0 / 0.65),
+    0 36px 72px -16px oklch(0 0 0 / 0.55),
+    0 0 0 1px var(--surface);
+
+  /* The focus ring inverts with the theme: light ink, and the gap painted
+     in whichever ground the control sits on. */
+  --focus-ring:
+    0 0 0 var(--focus-gap) var(--surface),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+  --focus-ring-on-paper:
+    0 0 0 var(--focus-gap) var(--background),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+  --focus-ring-on-sunken:
+    0 0 0 var(--focus-gap) var(--surface-sunken),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+  --ring: var(--foreground);
+
+  --focus-halo:
+    0 0 0 1px var(--foreground),
+    0 0 0 4px oklch(from var(--foreground) l c h / 0.14);
+  --focus-halo-invalid:
+    0 0 0 1px var(--critical),
+    0 0 0 4px oklch(from var(--foreground) l c h / 0.14);
+
+  /* shadcn compatibility, re-pointed. */
+  --card: var(--surface);
+  --popover: var(--surface);
+  --primary: var(--foreground);
+  --secondary: var(--surface-sunken);
+  --muted: var(--surface-sunken);
+  --accent: var(--surface-sunken);
+  --input: var(--control-default);
+}
+
+/* ==================================================================== */
+/* MEASURED LIGHT                                                        */
+/*                                                                       */
+/* The direction, in one rule: the room is dark, and the only light in   */
+/* it is emitted by something the system measured. docs/design/          */
+/* DIRECTION.md is the argument; this block is the mechanism.            */
+/*                                                                       */
+/* Nothing above this line changes meaning. The four status fills and    */
+/* the action lime keep their values and their measured ratios. What is  */
+/* added is a second register for the same five hues: LIGHT. A fill says */
+/* what state an object is in. A light says that the state was just      */
+/* reached, or that it holds. Light is never the only carrier of a       */
+/* state: every lit object also carries its state as a glyph, a word or  */
+/* a fill, so a screenshot in greyscale, a screen reader and a projector */
+/* that crushes the glow all still read it.                              */
+/*                                                                       */
+/* Because a light is decoration layered over a boundary and a label     */
+/* that already pass, WCAG's text and non-text thresholds do not apply   */
+/* to it, and none of these values is quoted with a ratio. Anything in   */
+/* this block that does carry a label or a boundary says so, with its    */
+/* ratio.                                                                */
+/* ==================================================================== */
+:root,
+[data-theme='light'] {
+  /* ------------------------------------------------------------------ */
+  /* Emission. Each state's light is its fill hue, lifted in OKLCH to a  */
+  /* lightness where it reads as light rather than as paint, with more   */
+  /* chroma than the fill. Written as oklch(), not hex, on purpose:      */
+  /* active, approval and critical sit just outside sRGB and inside      */
+  /* Display P3 (computed; sovereign's fits sRGB), so on a P3 laptop     */
+  /* they render more saturated than sRGB can, and on an sRGB projector  */
+  /* the browser maps them down along chroma, which only ever makes a    */
+  /* light quieter. The status fills stay literal hex, because their     */
+  /* ratios are proved and must not be gamut-mapped.                     */
+  /*                                                                     */
+  /*   fill                         emission                             */
+  /*   sovereign #16a34a  L .627 -> oklch(.80 .19 150)  proved, safe     */
+  /*   active    #0284c7  L .588 -> oklch(.76 .15 238)  running          */
+  /*   approval  #d97706  L .666 -> oklch(.82 .16  66)  held for a person*/
+  /*   critical  #dc2626  L .577 -> oklch(.70 .21  26)  refused, failed  */
+  /*   action    #dcf23c  L .915    already luminous   you can act       */
+  /* ------------------------------------------------------------------ */
+  --emit-sovereign: oklch(0.80 0.19 150);
+  --emit-active:    oklch(0.76 0.15 238);
+  --emit-approval:  oklch(0.82 0.16 66);
+  --emit-critical:  oklch(0.70 0.21 26);
+  --emit-action:    var(--action);
+  /* Ink light: a trace, a selection, a landing. Never a state. */
+
+  /* ------------------------------------------------------------------ */
+  /* Glow: a rim and a bloom, in that order. The rim is a crisp 1px edge */
+  /* of light, which is what reads as "lit" at a glance; the bloom is    */
+  /* the soft falloff around it, which is what reads as light rather     */
+  /* than as a border. Alpha rises with blur inside one glow, the same   */
+  /* way the elevation shadows are built.                                */
+  /* ------------------------------------------------------------------ */
+  --glow-sovereign:
+    0 0 0 1px oklch(from var(--emit-sovereign) l c h / 55%),
+    0 0 18px -2px oklch(from var(--emit-sovereign) l c h / 42%);
+  --glow-active:
+    0 0 0 1px oklch(from var(--emit-active) l c h / 55%),
+    0 0 18px -2px oklch(from var(--emit-active) l c h / 42%);
+  --glow-approval:
+    0 0 0 1px oklch(from var(--emit-approval) l c h / 55%),
+    0 0 18px -2px oklch(from var(--emit-approval) l c h / 40%);
+  --glow-critical:
+    0 0 0 1px oklch(from var(--emit-critical) l c h / 60%),
+    0 0 20px -2px oklch(from var(--emit-critical) l c h / 45%);
+  --glow-action:
+    0 0 0 1px oklch(from var(--emit-action) l c h / 45%),
+    0 0 16px -3px oklch(from var(--emit-action) l c h / 55%);
+  --glow-ink:
+    0 0 0 1px var(--foreground),
+    0 0 0 4px oklch(from var(--foreground) l c h / 10%);
+
+  /* ------------------------------------------------------------------ */
+  /* Wash: a state falling across a surface from the edge that owns it.  */
+  /* Stronger at the edge, gone by 70%, so a held deliverable or a       */
+  /* refused request is tinted where the reader starts and plain where   */
+  /* they read.                                                          */
+  /*                                                                     */
+  /* ON A WASH, WORDS ARE INK. The wash and a rule or glyph carry the    */
+  /* state; the label is --foreground or --foreground-secondary. Measured*/
+  /* (WCAG 2.x, sRGB alpha composite) at the wash's strongest edge over  */
+  /* --surface #191714, which is the lightest ground it can sit on:      */
+  /*                         sovereign  active  approval  critical       */
+  /*   --foreground            13.40    13.73    13.28     14.04         */
+  /*   --foreground-secondary   7.68     7.87     7.61      8.05         */
+  /*   its own -text token      4.76     4.08     4.88      4.20         */
+  /*   --foreground-muted       4.39     4.49     4.35      4.60         */
+  /* The -text tokens have almost no margin on --surface (active-text is */
+  /* 4.54:1 there), so two of them fall under 4.5:1 on their own wash,   */
+  /* and muted ink falls under it on three. Hence the rule, with no      */
+  /* third case.                                                         */
+  /* ------------------------------------------------------------------ */
+  --wash-approval:  linear-gradient(to bottom, oklch(from var(--approval) l c h / 11%), transparent 70%);
+  --wash-critical:  linear-gradient(to bottom, oklch(from var(--critical) l c h / 12%), transparent 70%);
+
+  /* ------------------------------------------------------------------ */
+  /* The lamp. One static, hueless falloff at the top of the app frame,  */
+  /* in the ground's own hue: the working surface is lit from above, the */
+  /* way an instrument panel is, and the page has depth instead of being */
+  /* a flat void. It carries no state and it never moves. It is painted */
+  /* once by a fixed layer, so scrolling never repaints it.              */
+  /* ------------------------------------------------------------------ */
+  --lamp: radial-gradient(
+    120% 60% at 50% -12%,
+    oklch(from var(--surface) calc(l + 0.035) c h / 85%),
+    transparent 72%
+  );
+
+  /* The lip of a raised object: 1px of light along its top edge, the    */
+  /* way a machined part catches an overhead lamp. Folded into the three */
+  /* elevation rungs below.                                              */
+  --rim: inset 0 1px 0 0 oklch(1 0 0 / 4.5%);
+
+  /* ------------------------------------------------------------------ */
+  /* Motion, beyond the three tiers.                                     */
+  /*                                                                     */
+  /* afterglow  a light cooling after the event that lit it. Opacity     */
+  /*            only, no travel. 1200ms is long enough that a reader     */
+  /*            glancing back finds the row that is new, and short      */
+  /*            enough that two events a second apart do not stack.     */
+  /*            Zero under reduced motion, with the tiers.              */
+  /* dur-land   a trace arriving: the ring contracts onto its target in  */
+  /*            the first fifth, holds, and lets go.                     */
+  /* ------------------------------------------------------------------ */
+  --afterglow: 1200ms;
+  --dur-land: 900ms;
+
+  /* How far a pressed control gives. Rauno's ceiling is 0.96; this is   */
+  /* an instrument, so it gives less. Scale, never translate: a scale    */
+  /* is composited and moves nothing around it.                          */
+  --press-scale: 0.98;
+
+  /* Light levels a settled state rests at. A rim, not a bloom: a state  */
+  /* that holds is quieter than the moment it was reached.               */
+  --light-rest-none: 0;
+  --light-rest-rim: 0.5;
+  --light-rest-full: 1;
+
+  /* ------------------------------------------------------------------ */
+  /* The shell's top inset: the fixed header plus the gap under it.      */
+  /* A screen that fills the viewport sizes itself against this rather   */
+  /* than a literal 72px, because the header is 56px on most screens and */
+  /* 92px on the three Assurance screens, which carry a second row.      */
+  /* The app frame sets the taller value itself; see .app-frame below.   */
+  /* ------------------------------------------------------------------ */
+  --shell-top: 72px;
+
+  /* ------------------------------------------------------------------ */
+  /* Figure: a measured value at headline size, once per panel. Not a    */
+  /* --text-* token on purpose: cn() in lib/utils.ts only knows the      */
+  /* eight sizes it was taught, and a ninth text-* size would be dropped */
+  /* by tailwind-merge the moment it met a text colour. It is exposed as */
+  /* the type-figure utility instead, which tailwind-merge leaves alone. */
+  /* ------------------------------------------------------------------ */
+  --size-figure: 28px; --lh-figure: 32px; --ls-figure: -0.02em;
+}
+
+/* The rim of light on a raised object is a dark-room effect; on paper the
+   Recall card shadow above does the work. */
+html[data-theme='dark'],
+[data-theme='dark'] {
+  /* ------------------------------------------------------------------ */
+  /* Elevation, re-issued with the rim as its first layer. Every other   */
+  /* layer is byte-identical to the dark block above, so a surface that */
+  /* already used a rung keeps its ring, its shadow and its opaque inner */
+  /* ring and gains only the lip.                                        */
+  /* ------------------------------------------------------------------ */
+  --elev-1:
+    var(--rim),
+    0 0 0 1px oklch(from var(--line-ink) l c h / 0.10),
+    0 1px 2px oklch(0 0 0 / 0.5),
+    0 0 0 1px var(--background);
+  --elev-2:
+    var(--rim),
+    0 0 0 1px oklch(from var(--line-ink) l c h / 0.12),
+    0 2px 4px oklch(0 0 0 / 0.45),
+    0 8px 16px -6px oklch(0 0 0 / 0.55),
+    0 0 0 1px var(--surface);
+  --elev-3:
+    var(--rim),
+    0 0 0 1px oklch(from var(--line-ink) l c h / 0.14),
+    0 12px 28px -12px oklch(0 0 0 / 0.65),
+    0 36px 72px -16px oklch(0 0 0 / 0.55),
+    0 0 0 1px var(--surface);
+}
+
+@theme inline {
+  --font-sans: var(--font-archivo), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian), var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-foreground: var(--foreground);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+  --color-grid: var(--grid);
+
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-border: var(--ink-border);
+
+  --color-sovereign: var(--sovereign);
+  --color-active: var(--active);
+  --color-approval: var(--approval);
+  --color-critical: var(--critical);
+
+  --color-card: var(--card);
+  --color-popover: var(--popover);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-action: var(--action);
+  --color-action-ink: var(--action-ink);
+  --color-action-hover: var(--action-hover);
+  --color-action-text: var(--action-text);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* The existing radius scale is left alone deliberately. The new
+     --radius-*-token values in :root are available to new components via
+     arbitrary values; remapping --radius-md here from 4px to 6px would
+     silently restyle every rounded-md already in the product. */
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* ---------------------------------------------------------------- */
+  /* Additions. Everything above this line is unchanged.               */
+  /* ---------------------------------------------------------------- */
+  --color-sovereign-text: var(--sovereign-text);
+  --color-active-text:    var(--active-text);
+  --color-approval-text:  var(--approval-text);
+  --color-critical-text:  var(--critical-text);
+
+  --color-on-sovereign: var(--on-sovereign);
+  --color-on-active:    var(--on-active);
+  --color-on-approval:  var(--on-approval);
+  --color-on-critical:  var(--on-critical);
+
+  --color-sovereign-surface: var(--sovereign-surface);
+  --color-active-surface:    var(--active-surface);
+  --color-approval-surface:  var(--approval-surface);
+  --color-critical-surface:  var(--critical-surface);
+  --color-approval-border:  var(--approval-border);
+  --color-critical-border:  var(--critical-border);
+
+  --color-line-subtle:  var(--line-subtle);
+  --color-line-default: var(--line-default);
+  --color-line-strong:  var(--line-strong);
+  --color-control-subtle:  var(--control-subtle);
+  --color-control-default: var(--control-default);
+  --color-control-strong:  var(--control-strong);
+
+  /* Verification verdicts. Absence is not wrongness, so UNSUPPORTED is
+     muted ink rather than red; CONFLICTED — two sources that disagree —
+     is the one that earns critical. SUPPORTED carries no hue at all: a
+     source said so, but nobody checked the arithmetic. */
+
+  /* Stage states. */
+
+  /* The --text-x / --text-x--line-height pair is what binds a
+     line-height to the generated utility. */
+  --text-display: var(--size-display);  --text-display--line-height: var(--lh-display);
+  --text-title:   var(--size-title);    --text-title--line-height:   var(--lh-title);
+  --text-heading: var(--size-heading);  --text-heading--line-height: var(--lh-heading);
+  --text-answer:  var(--size-answer);   --text-answer--line-height:  var(--lh-answer);
+  --text-body:    var(--size-body);     --text-body--line-height:    var(--lh-body);
+  --text-ui:      var(--size-ui);       --text-ui--line-height:      var(--lh-ui);
+  --text-meta:    var(--size-meta);     --text-meta--line-height:    var(--lh-meta);
+  --text-ledger:  var(--size-ledger);   --text-ledger--line-height:  var(--lh-ledger);
+
+  --font-serif: var(--font-serif);
+
+  --font-weight-normal: var(--weight-normal);
+  --font-weight-medium: var(--weight-medium);
+  --font-weight-strong: var(--weight-strong);
+
+  --shadow-elev-0: var(--elev-0);
+  --shadow-elev-1: var(--elev-1);
+  --shadow-elev-2: var(--elev-2);
+  --shadow-elev-3: var(--elev-3);
+  --shadow-focus:  var(--focus-ring);
+
+  /* ---------------------------------------------------------------- */
+  /* Measured Light. Emission colours and resting glows, as utilities: */
+  /* bg-emit-*, text-emit-* is deliberately NOT a use (light is never  */
+  /* a text colour), shadow-glow-* for a state that holds its light.   */
+  /* A glow that blooms on an event is the <Light> primitive in        */
+  /* shared/motion, not a class toggled by hand.                       */
+  /* ---------------------------------------------------------------- */
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    /* Anchor jumps glide rather than cut. The reduced-motion block below
+       returns this to `auto`, where an instant jump is the correct
+       behaviour rather than a degraded one.
+
+       Next 16 no longer suspends this during route changes on its own, so
+       a navigation from a scrolled page would glide to the top of the next
+       one. app/layout.tsx sets data-scroll-behavior="smooth" on <html>,
+       which is Next's opt-in for suspending it during navigation. */
+    scroll-behavior: smooth;
+
+    /* The thread grows as a run reports, so its page crosses the height
+       of the window mid-run. On a classic Windows scrollbar that crossing
+       shifted the whole layout 17px sideways at the moment the reader was
+       watching a stage change. Reserving the gutter makes the crossing
+       invisible; on overlay scrollbars it reserves nothing. */
+    scrollbar-gutter: stable;
+
+    /* The grey flash a touch screen paints over a tapped control is
+       replaced by the control's own pressed state, never left empty. */
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* The scrollbar. The thumb is a control -- it is how a reader knows how
+     much of a long ledger they have seen -- so it takes a control edge,
+     3.64:1 on the ground, not a divider line at 2.04:1.
+
+     Chromium draws it from the pseudo-elements below, which it only honours
+     while scrollbar-color and scrollbar-width are left at auto: set either,
+     as this rule used to on the root (scrollbar-color is inherited), and
+     every pane got the platform's bar back, arrow buttons and all. So the
+     standard properties are for the browsers without the pseudo-elements,
+     and every pane in the app gets the same thin, arrowless thumb. */
+  @supports not selector(::-webkit-scrollbar) {
+    html {
+      scrollbar-width: thin;
+      scrollbar-color: var(--control-strong) transparent;
+    }
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--control-strong) 70%, transparent) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--control-strong); }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    /* optimizeLegibility is gone. It is a documented source of layout
+       cost on long pages, and the only thing it bought here, kerning, is
+       asked for directly. */
+    font-kerning: normal;
+  }
+  ::selection {
+    /* Selection inverts with the theme, or selected text on a dark ground
+       becomes a black block. Tokens rather than literals so it follows. */
+    background: var(--foreground);
+    color: var(--background);
+  }
+
+  /* Stated once here so no component restates it.
+     Mono at 425 optically matches adjacent sans; tabular figures belong
+     at the base layer because every id, hash, latency, count and
+     coordinate in this product is mono, and columns of numbers that do
+     not align read as untrustworthy. */
+  code, kbd, samp, pre, .font-mono, [class*='font-mono'] {
+    font-variation-settings: 'wght' var(--weight-mono);
+    font-variant-numeric: tabular-nums;
+    /* A hash, a rule path or a model id is a string of characters, not
+       prose. A ligature that fuses `!=` or `fi` inside one changes what a
+       reader copies against what they see. */
+    font-variant-ligatures: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Utilities                                                           */
+/* ------------------------------------------------------------------ */
+@utility tech-grid {
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* glass-chassis and glass-chassis-dark are gone. A full-width
+   backdrop-filter re-samples everything beneath it on every frame the
+   stage board changes, and against flat warm paper it was visually
+   near-identical to a plain tinted surface. Neither had any consumer
+   outside this file. */
+
+/* Applied to any latency, score, hash fragment, count or coordinate that
+   needs to line up in a column. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* Card-less grouping: one container, hairline rules, a background tint.
+   This is what replaces a stack of separate cards — Stripe ran a "zero
+   cards" exercise across 150+ designs and takes depth from background
+   tint alone. */
+@utility grouped {
+  background: var(--surface);
+  box-shadow: var(--elev-0);
+  border-radius: var(--radius);
+}
+@utility grouped-row {
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+/* The asymmetric hover. Enter is instantaneous; only the decay is
+   animated. Transitioning both directions is what reads as lag. */
+@utility hover-decay {
+  transition:
+    background-color var(--hover-out) var(--ease-move),
+    color var(--hover-out) var(--ease-move),
+    box-shadow var(--hover-out) var(--ease-move);
+
+  /* Nested, not a second `@utility hover-decay:hover` rule — a Tailwind
+     v4 utility name has to be alphanumeric, so the pseudo-class variant
+     belongs inside the definition. */
+  &:hover {
+    transition-duration: var(--hover-in);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Button.                                                             */
+/*                                                                     */
+/* Three changes from what shipped: rounded-full becomes the 4px house */
+/* radius (anything rounder reads consumer, and this product is an     */
+/* instrument panel); `transition: all 200ms` becomes the asymmetric   */
+/* hover pair on three named properties; and the focus affordance      */
+/* becomes the gap ring rather than a 30%-alpha halo that failed 3:1.  */
+/*                                                                     */
+/* There is no translate on press. A button that moves when pressed is */
+/* a consumer gesture, and it animates layout.                         */
+/* ------------------------------------------------------------------ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  white-space: nowrap;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--ls-body);
+  transition:
+    background-color var(--hover-out) var(--ease-move),
+    color var(--hover-out) var(--ease-move),
+    box-shadow var(--hover-out) var(--ease-move);
+}
+.btn:hover {
+  transition-duration: var(--hover-in);
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* The focus gap has to match the ground the button actually sits on,
+   or the ring reads as a halo with a seam in it. */
+.btn[data-ground='paper'] {
+  --focus-ring:
+    0 0 0 var(--focus-gap) var(--background),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+}
+.btn[data-ground='sunken'] {
+  --focus-ring:
+    0 0 0 var(--focus-gap) var(--surface-sunken),
+    0 0 0 calc(var(--focus-gap) + 2px) var(--foreground);
+}
+.btn:disabled {
+  pointer-events: none;
+  opacity: var(--opacity-disabled);
+}
+
+.btn[data-size='sm'] {
+  height: var(--control-sm);
+  padding-inline: 10px;
+  font-size: var(--size-ui);
+  line-height: var(--lh-ui);
+}
+.btn[data-size='md'] {
+  height: var(--control-md);
+  padding-inline: 12px;
+  font-size: var(--size-body);
+  line-height: var(--lh-body);
+}
+.btn[data-size='lg'] {
+  height: var(--control-lg);
+  padding-inline: 16px;
+  font-size: var(--size-body);
+  line-height: var(--lh-body);
+}
+
+/* Exactly one filled button may be visible in one decision context.
+ *
+ * Filled in the action colour, not in ink. A white-on-black button is the
+ * same two values as the page's body text, so the one control the reader is
+ * meant to press looked like a paragraph that had been inverted. This is the
+ * only place the action colour is spent, which is what keeps it meaning
+ * anything. */
+.btn[data-variant='primary'] {
+  background: var(--action);
+  color: var(--action-ink);
+}
+.btn[data-variant='primary']:hover {
+  background: oklch(from var(--action) calc(l + 0.06) c h);
+}
+
+.btn[data-variant='secondary'] {
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 0 0 1px var(--control-default);
+}
+.btn[data-variant='secondary']:hover {
+  background: var(--surface-sunken);
+  box-shadow: 0 0 0 1px var(--control-strong);
+}
+
+.btn[data-variant='ghost'] {
+  background: transparent;
+  color: var(--foreground-secondary);
+}
+.btn[data-variant='ghost']:hover {
+  background: var(--surface-sunken);
+  color: var(--foreground);
+}
+
+/* Danger takes the text variant, never the fill hue, on a light ground:
+   --critical as a label is 4.50:1 on paper, --critical-text is 6.03:1. */
+.btn[data-variant='danger'] {
+  background: var(--critical-surface);
+  color: var(--critical-text);
+  box-shadow: 0 0 0 1px var(--critical-border);
+}
+.btn[data-variant='danger']:hover {
+  background: oklch(from var(--critical) l c h / 14%);
+}
+
+/* Press. The control gives, by 2%, for as long as it is held.
+ *
+ * Still no translate, for the reason given above: a translate moves the
+ * control off its row. A scale is composited, moves nothing around it,
+ * and reads as a key going down rather than a card sliding. It is instant
+ * in both directions, because a pressed state that eases in arrives after
+ * the finger has already lifted. */
+.btn:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+/* The action, lit under the pointer.
+ *
+ * Lime is the one colour that means "you can do this", and this is the
+ * one moment it may emit light: when the pointer is on it. It follows the
+ * hover pair, so the light arrives at once and decays over 150ms. A
+ * keyboard-focused primary keeps its ink focus ring instead, because the
+ * ring is the accessibility affordance and must never be replaced. */
+.btn[data-variant='primary']:hover:not(:focus-visible) {
+  box-shadow: var(--glow-action);
+}
+
+/* Forced truncation for hashes and model ids: never wrap, never let one
+   cell change a row's height. */
+@utility truncate-cell {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion                                                              */
+/* ------------------------------------------------------------------ */
+/* Removed: sov-blink, sov-dash, sov-trace, sov-drift, sov-spin-slow,
+   sov-radar-sweep, sov-laser-flow, sov-glow-pulse / .sov-glow-sovereign,
+   sov-glow-pulse-active / .sov-glow-active, sov-deflection /
+   .sov-deflection-burst, and .cursor-grab.
+
+   Every one was referenced only from this stylesheet — verified by
+   grepping all 39 components. Each is either an infinite ambient loop or
+   a celebration burst: motion running while nothing is happening, or
+   motion rewarding an outcome. In a product whose job is to report what
+   a governed run actually did, neither is meaningful, and an infinite
+   loop competes with local inference for the main thread.
+
+   arrow-shift survives: the button uses it. */
+
+.arrow-shift {
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.group:hover .arrow-shift {
+  transform: translateX(4px);
+}
+
+/* ==================================================================== */
+/* SIGNATURE MOTIONS                                                     */
+/*                                                                       */
+/* Seven motions, each tied to one thing the system does, and each named */
+/* for it: APPEND, VERIFY, RELEASE, REFUSE, SEAL, TRACE and TURN, plus   */
+/* ROLL for a number that changed. The React primitives in shared/motion */
+/* are the intended way to use them; these classes are what they set.    */
+/*                                                                       */
+/* Four laws, which every rule below obeys and which are the reason for  */
+/* most of its details:                                                  */
+/*                                                                       */
+/*  1. Ink never fades in; light does. Content arrives by MOVING, at     */
+/*     full opacity, so it is legible from its first frame, in a print,  */
+/*     in a screenshot and for a reader whose animations never ran.      */
+/*     Only light (glows, washes, rims) animates its opacity. This is    */
+/*     the rule components/landing/reveal.tsx and the modal already      */
+/*     follow, made general.                                             */
+/*  2. Every motion names its referent. An APPEND is a record the        */
+/*     backend wrote; a VERIFY is a check that ran. Nothing loops unless */
+/*     the thing it depicts is running, and nothing moves on an idle     */
+/*     page.                                                             */
+/*  3. A number never passes through values it did not have. A counter  */
+/*     that tweens from 3 to 7 shows 4, 5 and 6, none of which was ever */
+/*     measured, so numbers ROLL between their real values instead.      */
+/*  4. Transform and opacity only, plus grid-template-rows for a         */
+/*     disclosure. Everything here is composited, so it keeps its frame  */
+/*     rate while the main thread is parsing an event burst and the CPU  */
+/*     is running a model.                                               */
+/* ==================================================================== */
+
+@keyframes certus-rise {
+  from { transform: translateY(var(--rise, var(--shift-md))); }
+  to   { transform: none; }
+}
+@keyframes certus-afterglow {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+/* Light arrives fast and cools to whatever the settled state keeps. */
+@keyframes certus-bloom {
+  0%   { opacity: 0; }
+  12%  { opacity: 1; }
+  100% { opacity: var(--light-rest, 0); }
+}
+@keyframes certus-draw-x {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes certus-draw-y {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+/* Contracts ONTO its target, which reads as landing; expanding away from
+   it would read as something leaving. */
+@keyframes certus-land {
+  0%   { opacity: 0; transform: scale(1.03); }
+  18%  { opacity: 1; transform: none; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* A small mark settling into its slot at the end of a seal rule. */
+@keyframes certus-seat {
+  from { opacity: 0; transform: translateX(-6px) scale(0.6); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes certus-roll-in {
+  from { transform: translateY(var(--roll-from, 100%)); }
+  to   { transform: none; }
+}
+@keyframes certus-roll-out {
+  from { transform: none; opacity: 1; }
+  to   { transform: translateY(var(--roll-to, -100%)); opacity: 0; }
+}
+@keyframes certus-turn-in {
+  from { transform: translateY(6px); }
+  to   { transform: none; }
+}
+
+/* ------------------------------------------------------------------ */
+/* APPEAR — a block arriving in place, on mount.                        */
+/* Referent: the block's data arrived. Spatial tier: it occupies space. */
+/* Mounts moving, never waiting on an observer, and never transparent. */
+/* ------------------------------------------------------------------ */
+.certus-appear {
+  animation: certus-rise var(--spatial) var(--ease-spatial) both;
+  animation-delay: calc(min(var(--appear-i, 0), var(--stagger-cap)) * var(--stagger));
+}
+
+/* ------------------------------------------------------------------ */
+/* APPEND — a record joining the chain.                                 */
+/*                                                                      */
+/* Referent: a row the backend wrote after the list was already on      */
+/* screen (an evidence item, an audit record, a settled harness item).  */
+/* Rows present when a list first renders were read, not appended, and  */
+/* do not animate; <AppendScope> is what tells the two apart.           */
+/*                                                                      */
+/* The row arrives LIT and cools: it settles 4px into place at full     */
+/* opacity (standard tier) while a wash and a 2px rule in its tone sit  */
+/* behind its content and fade over the afterglow. The wash is on a     */
+/* pseudo-element behind the row's content, in the row's own stacking   */
+/* context, so it tints the row and never the words on it.              */
+/* ------------------------------------------------------------------ */
+.certus-append {
+  --rise: var(--shift-sm);
+  --append-delay: calc(min(var(--append-i, 0), var(--stagger-cap)) * var(--stagger));
+  position: relative;
+  isolation: isolate;
+  animation: certus-rise var(--standard) var(--ease-spatial) both;
+  animation-delay: var(--append-delay);
+}
+.certus-append::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--append-wash, oklch(from var(--line-ink) l c h / 7%));
+  box-shadow: inset 2px 0 0 0 var(--append-rule, var(--control-strong));
+  animation: certus-afterglow var(--afterglow) var(--ease-standard) both;
+  animation-delay: var(--append-delay);
+}
+.certus-append[data-tone='sovereign'] {
+  --append-wash: oklch(from var(--emit-sovereign) l c h / 10%);
+  --append-rule: var(--sovereign);
+}
+.certus-append[data-tone='active'] {
+  --append-wash: oklch(from var(--emit-active) l c h / 10%);
+  --append-rule: var(--active);
+}
+.certus-append[data-tone='approval'] {
+  --append-wash: oklch(from var(--emit-approval) l c h / 10%);
+  --append-rule: var(--approval);
+}
+.certus-append[data-tone='critical'] {
+  --append-wash: oklch(from var(--emit-critical) l c h / 11%);
+  --append-rule: var(--critical);
+}
+/* A burst too large to animate row by row -- sixty evidence chunks from
+   one retrieval -- lands still. The count that heads the list still
+   changes, so nothing is hidden; the screen declines to move sixty things
+   at once while the CPU is busy. */
+[data-append-bulk] .certus-append,
+[data-append-bulk] .certus-append::before {
+  animation: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* LIGHT — a state reached, and a state that holds.                     */
+/*                                                                      */
+/* The halo is a real child, not a pseudo-element, so the <Light>       */
+/* primitive can replay its bloom by re-keying it. It sits behind the   */
+/* lit object (z -1 inside the light's own stacking context), so the    */
+/* object's own background covers the inside of the glow and only the   */
+/* rim and the falloff show around it.                                  */
+/* ------------------------------------------------------------------ */
+.certus-light {
+  position: relative;
+  isolation: isolate;
+}
+.certus-light-halo {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: var(--light-glow, var(--glow-ink));
+  opacity: var(--light-rest, 0);
+}
+.certus-light-halo[data-bloom] {
+  animation: certus-bloom var(--afterglow) var(--ease-standard) both;
+}
+.certus-light[data-tone='sovereign'] { --light-glow: var(--glow-sovereign); }
+.certus-light[data-tone='active']    { --light-glow: var(--glow-active); }
+.certus-light[data-tone='approval']  { --light-glow: var(--glow-approval); }
+.certus-light[data-tone='critical']  { --light-glow: var(--glow-critical); }
+.certus-light[data-tone='action']    { --light-glow: var(--glow-action); }
+.certus-light[data-tone='ink']       { --light-glow: var(--glow-ink); }
+.certus-light[data-rest='none'] { --light-rest: var(--light-rest-none); }
+.certus-light[data-rest='rim']  { --light-rest: var(--light-rest-rim); }
+.certus-light[data-rest='full'] { --light-rest: var(--light-rest-full); }
+
+/* ------------------------------------------------------------------ */
+/* VERIFY — a check moving across a set, as far as it has actually got. */
+/*                                                                      */
+/* --sweep is done/total, written by the <Sweep> primitive from a real  */
+/* count. The checked part is sovereign: those records recomputed. The  */
+/* leading edge is the check in progress, in active; if a record fails  */
+/* the edge turns critical and stops there. The fill is translated, not */
+/* scaled, so its leading edge stays a crisp 2px line at every value,   */
+/* and it moves only between counts the check reported.                 */
+/* ------------------------------------------------------------------ */
+.certus-sweep {
+  position: relative;
+  overflow: hidden;
+  background: var(--line-default);
+}
+.certus-sweep-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--sovereign);
+  transition: transform var(--standard) var(--ease-standard);
+}
+.certus-sweep[data-axis='y'] .certus-sweep-fill {
+  transform: translateY(calc((var(--sweep, 0) - 1) * 100%));
+  box-shadow: inset 0 -2px 0 0 var(--sweep-edge, transparent);
+}
+.certus-sweep[data-axis='x'] .certus-sweep-fill {
+  transform: translateX(calc((var(--sweep, 0) - 1) * 100%));
+  box-shadow: inset -2px 0 0 0 var(--sweep-edge, transparent);
+}
+.certus-sweep[data-state='running'] { --sweep-edge: var(--emit-active); }
+.certus-sweep[data-state='broken']  { --sweep-edge: var(--emit-critical); }
+.certus-sweep[data-state='passed']  { --sweep-edge: transparent; }
+
+/* ------------------------------------------------------------------ */
+/* REFUSE — a policy denial, settling.                                  */
+/*                                                                      */
+/* Loud by subtraction: the rest of the board recedes to --opacity-dim  */
+/* over the hold tier while the refused object draws a critical rule    */
+/* down its leading edge and takes a critical light that settles to a   */
+/* rim. No shake, no flash, no pulse. A refusal is the system working,  */
+/* and it is a settled state, not an alarm that keeps ringing.          */
+/* ------------------------------------------------------------------ */
+.certus-dim-scope [data-dim-item] {
+  transition: opacity var(--dur-hold) var(--ease-move);
+}
+.certus-dim-scope[data-dimmed] [data-dim-item]:not([data-dim-keep]) {
+  opacity: var(--opacity-dim);
+}
+.certus-refuse {
+  position: relative;
+}
+.certus-refuse-rule {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 2px;
+  background: var(--critical);
+  transform-origin: top;
+  animation: certus-draw-y var(--dur-hold) var(--ease-spatial) both;
+}
+
+/* ------------------------------------------------------------------ */
+/* SEAL — a hash committing.                                            */
+/*                                                                      */
+/* The hash is on screen, whole and legible, before and during the      */
+/* seal: the motion is a rule drawn beneath it left to right over       */
+/* --dur-seal, the one 640ms motion in the product, because a seal is a */
+/* commitment made across a body of content. A small mark seats at the  */
+/* end of the rule when it completes. No character of the hash is ever  */
+/* scrambled or typed on: every glyph shown is the real one.            */
+/* ------------------------------------------------------------------ */
+.certus-seal {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding-bottom: 3px;
+}
+.certus-seal-rule {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--seal-tone, var(--sovereign));
+  transform-origin: left center;
+}
+.certus-seal[data-draw] .certus-seal-rule {
+  animation: certus-draw-x var(--dur-seal) var(--ease-standard) both;
+}
+.certus-seal-mark {
+  color: var(--seal-tone, var(--sovereign));
+  font-size: var(--size-ledger);
+  line-height: 1;
+}
+.certus-seal[data-draw] .certus-seal-mark {
+  animation: certus-seat var(--standard) var(--ease-spatial) both;
+  animation-delay: var(--dur-seal);
+}
+/* Unsealed is drawn, not omitted: a dashed rule in line ink says "this
+   has not been committed", which is a different fact from "nothing here". */
+.certus-seal[data-sealed='false'] .certus-seal-rule {
+  background: repeating-linear-gradient(
+    to right, var(--control-strong) 0 3px, transparent 3px 6px
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* TRACE — a citation leading to its source.                            */
+/*                                                                      */
+/* The target is scrolled into view and an ink ring contracts onto it,  */
+/* holds, and lets go, leaving the target's own selected style in       */
+/* place. Ink, not a status hue: tracing is the reader navigating, and  */
+/* "selected" must never read as "verified".                            */
+/*                                                                      */
+/* [data-trace-lit] is set by <TraceScope> on every element sharing the */
+/* hovered id, so a citation chip and its evidence row light together.  */
+/* ------------------------------------------------------------------ */
+.certus-trace {
+  position: relative;
+}
+.certus-trace-land {
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: var(--glow-ink);
+  animation: certus-land var(--dur-land) var(--ease-spatial) both;
+}
+[data-trace-lit] {
+  box-shadow: 0 0 0 1px var(--foreground);
+}
+
+/* ------------------------------------------------------------------ */
+/* ROLL — a measured number changing.                                   */
+/*                                                                      */
+/* Only the characters that changed move: the old glyph leaves and the  */
+/* new one arrives from the direction the value moved, like a meter     */
+/* wheel. clip-path rather than overflow:hidden, because an inline-block */
+/* with overflow hidden takes its baseline from its bottom edge and     */
+/* would sit a few pixels above the text around it.                     */
+/* ------------------------------------------------------------------ */
+.certus-roll {
+  position: relative;
+  display: inline-block;
+  clip-path: inset(0 -0.2em);
+}
+.certus-roll-in {
+  display: inline-block;
+  animation: certus-roll-in var(--standard) var(--ease-spatial) both;
+}
+.certus-roll-out {
+  position: absolute;
+  inset: 0;
+  animation: certus-roll-out var(--standard) var(--ease-spatial) both;
+}
+.certus-roll[data-dir='up']   { --roll-from: 100%;  --roll-to: -100%; }
+.certus-roll[data-dir='down'] { --roll-from: -100%; --roll-to: 100%; }
+
+/* ------------------------------------------------------------------ */
+/* DISCLOSE — content that opens out of the thing that owns it.         */
+/* The one sanctioned layout animation: grid rows from 0fr to 1fr is    */
+/* the only way to reach intrinsic height, and it is cheap.             */
+/* ------------------------------------------------------------------ */
+.certus-disclose {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--disclose-dur, var(--spatial)) var(--ease-spatial);
+}
+.certus-disclose[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+.certus-disclose > * {
+  min-height: 0;
+  overflow: hidden;
+}
+.certus-disclose[data-tempo='hold'] {
+  --disclose-dur: var(--dur-hold);
+}
+
+/* ------------------------------------------------------------------ */
+/* THE SPECTRUM — a set of records, one cell each, coloured by what     */
+/* each one measurably came to.                                         */
+/*                                                                      */
+/* This is where the product is most colourful, and it is also where    */
+/* colour carries the most information: twenty-four harness items are   */
+/* twenty-four facts. Nine cell states, and no two share both a fill    */
+/* style and a hue. As non-text marks every fill clears 3:1 on the      */
+/* ground and on --surface (critical is the lowest, 3.99 and 3.70), and */
+/* the empty states are drawn in --control-strong, not in a line token, */
+/* because line-strong is 2.04:1 and an empty cell must still be seen.  */
+/* The strip is a summary: the list beside it carries glyphs and words, */
+/* and the strip's own label carries the counts.                        */
+/* ------------------------------------------------------------------ */
+.certus-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  --cell: 10px;
+}
+.certus-strip-cell {
+  position: relative;
+  width: var(--cell);
+  height: var(--cell);
+  border-radius: 1px;
+  flex: none;
+}
+.certus-strip-cell[data-state='pending'] { box-shadow: inset 0 0 0 1px var(--control-strong); }
+.certus-strip-cell[data-state='active']  { background: var(--active); box-shadow: var(--glow-active); }
+.certus-strip-cell[data-state='proved']  { background: var(--sovereign); }
+.certus-strip-cell[data-state='review']  { background: var(--approval-surface); box-shadow: inset 0 0 0 1px var(--approval); }
+.certus-strip-cell[data-state='held']    { background: var(--approval); }
+.certus-strip-cell[data-state='refused'] { background: var(--critical); }
+.certus-strip-cell[data-state='failed']  { background: var(--critical-surface); box-shadow: inset 0 0 0 1px var(--critical); }
+.certus-strip-cell[data-state='neutral'] { background: var(--foreground-muted); }
+.certus-strip-cell[data-state='skipped'] {
+  background: linear-gradient(var(--control-strong), var(--control-strong)) center / 100% 1px no-repeat;
+}
+/* The tick: a cell that just settled blooms in its own tone and cools. */
+
+/* ------------------------------------------------------------------ */
+/* Utilities for the light register.                                    */
+/* ------------------------------------------------------------------ */
+@utility wash-approval  { background-image: var(--wash-approval); }
+@utility wash-critical  { background-image: var(--wash-critical); }
+
+/* A measured value at headline size. See --size-figure for why this is
+   not a text-* token. */
+@utility type-figure {
+  font-size: var(--size-figure);
+  line-height: var(--lh-figure);
+  letter-spacing: var(--ls-figure);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Press for anything pressable that is not a .btn: a row, a chip, a
+   segment. Same 2%, same instant give. */
+@utility press {
+  &:active:not(:disabled) {
+    transform: scale(var(--press-scale));
+  }
+}
+
+/* ==================================================================== */
+/* THE SHELL                                                             */
+/* ==================================================================== */
+
+/* The three Assurance screens carry a second header row, so the frame
+   that holds them reserves more room at the top. Declared here with :has()
+   rather than set from script, so the value is right on the first frame
+   and there is no jump when the header hydrates. */
+.app-frame:has([data-shell-subnav]) {
+  --shell-top: 108px;
+}
+
+/* The lamp: see --lamp. z-0, not negative: a negative z-index child is
+   painted under the body's opaque background and was never seen, which is
+   what happened to the tech-grid this replaces. */
+.app-atmosphere {
+  background: var(--lamp);
+}
+
+/* ------------------------------------------------------------------ */
+/* TURN — moving between screens.                                       */
+/*                                                                      */
+/* The same instrument, a different reading. The header does not move:  */
+/* it is in the root snapshot and the root is swapped without           */
+/* animation, and because a view transition's new image is live, the    */
+/* navigation's own sliding indicator keeps gliding through it. The     */
+/* page content is cut, not cross-faded -- the old reading is gone at   */
+/* once, so two screens are never on the glass together -- and the new  */
+/* one settles 6px upward at full opacity over the standard tier.       */
+/* Nothing waits: the new screen is readable from its first frame.      */
+/*                                                                      */
+/* Driven by React's <ViewTransition update="certus-turn">, which wraps  */
+/* <main> in app/(app)/layout.tsx through shared/motion/route-stage.    */
+/* Navigations are transitions, so they animate; the setState calls an */
+/* event stream makes are not, so a live run never triggers one.        */
+/* ------------------------------------------------------------------ */
+::view-transition {
+  /* Clicks during the 200ms go to the live page, not the overlay. */
+  pointer-events: none;
+}
+::view-transition-old(root) {
+  display: none;
+}
+::view-transition-new(root) {
+  animation: none;
+}
+::view-transition-group(.certus-turn) {
+  animation: none;
+}
+::view-transition-old(.certus-turn) {
+  display: none;
+}
+::view-transition-new(.certus-turn) {
+  animation: certus-turn-in var(--standard) var(--ease-spatial) both;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reduced-motion contract.                                            */
+/*                                                                     */
+/* Because durations and travel distances are tokens, zeroing the      */
+/* tokens IS the contract. This replaces a `*` / !important            */
+/* sledgehammer that also clobbered animation-fill-mode edge cases and */
+/* did nothing at all about travel distance — a 14px slide at 0.001ms  */
+/* is still a 14px jump.                                               */
+/*                                                                     */
+/* Every duration is zeroed, the tiers included, so nothing written    */
+/* against any of them animates. That includes --dur-tick, which is an */
+/* alias of --micro: colour changes become instant too. A colour fade  */
+/* is not itself a vestibular trigger, but a contract with no          */
+/* exceptions is one that code written later cannot fall through.      */
+/* ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-panel: 0ms;
+    --dur-hold: 0ms;
+    --dur-seal: 0ms;
+    --hover-out: 0ms;
+    --stagger: 0ms;
+    --shift-sm: 0px;
+    --shift-md: 0px;
+
+    /* The three tiers themselves, and the light register's two
+       durations. Zeroing only the old --dur-* aliases left everything
+       written against --micro / --standard / --spatial -- the modal, the
+       toast, the menus, every tier-timed transition -- still animating for
+       a reader who asked for no motion. With these at zero, every animation
+       and transition in the product completes on its first frame and holds
+       its end state: a bloom lands at its rest level, an afterglow at
+       nothing, a trace ring is not drawn and the traced row keeps its
+       selected style. */
+    --micro: 0ms;
+    --standard: 0ms;
+    --spatial: 0ms;
+    --afterglow: 0ms;
+    --dur-land: 0ms;
+  }
+  /* Transforms are gated at the keyframe, not the duration. */
+  .arrow-shift,
+  .group:hover .arrow-shift {
+    transition: none;
+    transform: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+
+  /* The signature motions. Their durations are already zero above; travel
+     is also removed here, at the rule, so that no transform is ever applied
+     even for the one frame a zero-length animation takes. Every end state
+     is identical; it simply arrives at once. The facts the motion carried
+     are all still on screen as fills, glyphs, words and counts, and a row
+     that just arrived is simply there. */
+  .certus-appear,
+  .certus-append,
+  .certus-roll-in,
+  .certus-refuse-rule,
+  .certus-seal[data-draw] .certus-seal-rule,
+  .certus-seal[data-draw] .certus-seal-mark {
+    animation: none;
+  }
+  .certus-roll-out {
+    display: none;
+  }
+  /* No contraction. With --dur-land at zero the ring is not drawn at all;
+     the traced row keeps its own selected style, which is the fact. */
+  .certus-trace-land {
+    animation-name: certus-afterglow;
+  }
+  .certus-sweep-fill,
+  .certus-disclose {
+    transition: none;
+  }
+  .btn:active:not(:disabled),
+  .press:active:not(:disabled) {
+    transform: none;
+  }
+  ::view-transition-new(.certus-turn) {
+    animation: none;
+  }
+}
+
+/* The custom-cursor block is gone with components/sovereign-cursor.tsx.
+   `cursor: none !important` across html, body, buttons, links and every
+   role is an unrecoverable failure mode: if the component that draws the
+   replacement reticle does not hydrate, the operator has no pointer and
+   no way to get one back. That is not a risk worth carrying into a room
+   with judges in it. */
+
+@layer components {
+/* ==================================================================== */
+/* THE PUBLIC PAGES — landing and sign-in                                */
+/*                                                                       */
+/* Calm and product-first, in the manner of the best AI product sites:   */
+/* one sans family, big tight sentence-case headlines whose second half  */
+/* recedes to grey, ink pills for actions, real product in soft frames,  */
+/* and nothing decorative. Motion is one fade-up per block, opacity and  */
+/* transform only, so it composites without repainting: no blur filters, */
+/* no backdrop filters, no scroll listeners, nothing that loops.         */
+/* ==================================================================== */
+:root {
+  --ae-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ---- type ------------------------------------------------------------ */
+/* The second half of a headline recedes to grey rather than changing voice. */
+
+/* ---- actions --------------------------------------------------------- */
+.ae-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 9999px; font-size: 0.95rem; font-weight: 500; letter-spacing: -0.01em; white-space: nowrap; transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease; }
+.ae-btn:active { transform: scale(0.98); }
+.ae-btn:focus-visible { outline: none; box-shadow: var(--focus-ring-on-paper); }
+.ae-btn.primary { background: var(--action); color: var(--action-ink); }
+.ae-btn.primary:hover { background: var(--action-hover); }
+.ae-btn.secondary { background: color-mix(in oklab, var(--foreground) 7%, var(--background)); color: var(--foreground); }
+.ae-btn.secondary:hover { background: color-mix(in oklab, var(--foreground) 11%, var(--background)); }
+.ae-btn.ghost { background: transparent; color: var(--foreground-secondary); }
+.ae-btn.ghost:hover { color: var(--foreground); background: color-mix(in oklab, var(--foreground) 5%, var(--background)); }
+.ae-btn.sm { height: 36px; padding: 0 16px; font-size: 0.875rem; }
+.ae-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+.ae-btn .ar { transition: transform 0.2s var(--ae-ease); }
+.ae-btn:hover .ar { transform: translateX(2px); }
+
+/* ---- header ------------------------------------------------------------ */
+/* An opaque-enough ground rather than a backdrop blur: blur on a sticky
+   bar repaints on every scroll frame, which is what made the page lag. */
+
+/* ---- the product frame ---------------------------------------------- */
+
+/* ---- cards and grids ------------------------------------------------- */
+
+/* ---- motion: one fade-up per block ---------------------------------- */
+:where(html[data-js]) .ae-reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.7s var(--ae-ease), transform 0.7s var(--ae-ease); }
+.ae-in .ae-reveal, .ae-reveal.ae-in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  :where(html[data-js]) .ae-reveal { opacity: 1; transform: none; transition: none; }
+  .ae-btn, .ae-btn .ar { transition: none; }
+}
+
+/* ---- the run replay ------------------------------------------------- */
+
+/* A status that is still happening breathes; a settled one is a pill.
+   Opacity, and a glyph that turns: both run on the compositor. The gradient
+   swept through the text before this animated background-position, which
+   repaints on the main thread every frame -- for the whole of a run, on a
+   CPU the model is already holding. */
+.ae-shimmer { color: var(--foreground); animation: ae-breathe 1.8s ease-in-out infinite; will-change: opacity; }
+@keyframes ae-breathe { 50% { opacity: 0.45; } }
+.ae-spin { line-height: 1; animation: ae-spin 2.4s linear infinite; will-change: transform; }
+@keyframes ae-spin { to { transform: rotate(360deg); } }
+
+/* The run as a transcript: a bullet per stage, what came back hung under it. */
+
+@media (prefers-reduced-motion: reduce) {
+  .ae-shimmer, .ae-spin { animation: none; }
+}
+
+/* the announcement pill above the headline */
+}
+
+/* ==================================================================== */
+/* LABELS                                                                */
+/*                                                                       */
+/* Small labels were set in uppercase mono with wide tracking, in some   */
+/* two hundred places; across a screen that reads as noise, not as       */
+/* precision. Every such label is now plain sans in the text as written. */
+/* Values stay mono -- a hash, an id, a figure is not uppercase -- so    */
+/* only the labels change. Unlayered on purpose: it has to win over the  */
+/* utilities it replaces.                                                */
+/* ==================================================================== */
+.font-mono.uppercase {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: -0.003em;
+  font-weight: 500;
+}
+.font-mono.uppercase.text-ledger { font-size: 11.5px; line-height: 16px; }
+
+/* ==================================================================== */
+/* THE THREAD — entrance                                                 */
+/* An empty thread rises into place once: the greeting, then the three   */
+/* starters a step apart. Opacity and transform only.                    */
+/* ==================================================================== */
+@keyframes thread-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.thread-hello { position: relative; animation: thread-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.thread-starter { animation: thread-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+/* A soft light behind the greeting: a static gradient, no filter. */
+.thread-hello::before { content: ''; position: absolute; z-index: -1; left: 50%; top: 50%; width: min(720px, 90vw); height: 320px; transform: translate(-50%, -50%); background: radial-gradient(closest-side, oklch(from var(--foreground) l c h / 4.5%), transparent); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .thread-hello, .thread-starter { animation: none; } }
+
+/* ==================================================================== */
+/* THE PUBLIC PAGES — painted grounds, gallery, stack strip              */
+/*                                                                       */
+/* The product sits on a painted ground, the way the best product pages  */
+/* frame a screenshot: layered warm gradients and a fine film grain from  */
+/* a static SVG noise tile. Nothing here moves, so it costs nothing to    */
+/* scroll past; the grain is one small data URI, not a network request.  */
+/* ==================================================================== */
+
+/* ---- phone widths ---------------------------------------------------- */
+
+/* ==================================================================== */
+/* Night bands                                                          */
+/*                                                                      */
+/* The hero, the proof section and the footer take the dark palette     */
+/* whatever the page's theme (data-theme="dark" on the element), so the */
+/* page has a rhythm of grounds instead of one long sheet of paper.     */
+/* Their textures are static CSS -- a dot lattice and soft glows -- and */
+/* the one thing that moves is the hero's dot field, drawn on a canvas  */
+/* that only runs while it is on screen.                                */
+/* ==================================================================== */
+
+/* ==================================================================== */
+/* The thread's grounds                                                 */
+/*                                                                      */
+/* Four surfaces that used to be one sheet: the run list on a recessed  */
+/* ground, the run's log on a card of its own, the answer on the page,  */
+/* and the composer docked over a fade. All static: nothing here draws  */
+/* per frame on the thread that parses the event stream.                */
+/* ==================================================================== */
+@layer components {
+  /* The run's log: a terminal card, apart from the answer's prose. */
+  .thread-log { background: color-mix(in oklab, var(--foreground) 2.5%, var(--background)); }
+  [data-theme='dark'] .thread-log { background: color-mix(in oklab, var(--foreground) 4%, var(--background)); }
+
+  /* The log's fold: open while a run is live, one line once its answer is
+     released. Grid rows, so the fold follows the log's real height; it runs
+     once, when the answer lands, and never while the log is drawing. */
+  .ae-fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 320ms var(--ease-standard, ease); }
+  .ae-fold.open { grid-template-rows: 1fr; }
+  @media (prefers-reduced-motion: reduce) { .ae-fold { transition: none; } }
+
+  /* The docked composer: the thread fades out beneath it instead of meeting an edge. */
+  .thread-dock { background: linear-gradient(to top, var(--background) 60%, transparent); }
+
+  /* The empty thread: a faint lattice around the greeting. It reaches past
+     the column but stops short of the run list at every width it shows at. */
+  .thread-empty { position: relative; isolation: isolate; }
+  .thread-empty::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 50%; z-index: -1; pointer-events: none;
+    width: calc(100% + 240px); transform: translateX(-50%);
+    background-image: radial-gradient(circle, color-mix(in oklab, var(--foreground) 26%, transparent) 1px, transparent 1.5px);
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(ellipse 55% 42% at 50% 40%, #000 8%, transparent 72%);
+            mask-image: radial-gradient(ellipse 55% 42% at 50% 40%, #000 8%, transparent 72%);
+  }
+}
+
+/* ==================================================================== */
+/* How it works and the proof cards                                     */
+/* ==================================================================== */
+
+/* ==================================================================== */
+/* The landing page, third pass                                         */
+/*                                                                      */
+/* Motion that explains the product, not motion for its own sake: the   */
+/* headline comes into focus, the product frame lies back and rises as  */
+/* it is reached, what people ask runs past in two rows, the run is     */
+/* proved step by step as the page scrolls, and the security claims are */
+/* things the reader can do. Transform and opacity wherever something   */
+/* moves; the one pinned section writes a single CSS variable per frame */
+/* and React hears only a change of step.                               */
+/* ==================================================================== */
+@layer components {
+  /* ---- the headline, word by word ------------------------------------ */
+
+  /* ---- frames that lie back and rise as they are reached --------------- */
+
+  /* ---- use cases: two rows, running opposite ways ------------------------ */
+
+  /* ---- how it works: the pinned story ------------------------------------ */
+
+  /* ---- the five scenes ------------------------------------------------------ */
+
+  /* Each scene plays once as it becomes the current step. */
+
+  /* ---- security: the bento on the night band --------------------------------- */
+
+  /* The chain the reader can try to rewrite. */
+  .ae-tamper { display: flex; flex-direction: column; gap: 18px; }
+  .ae-tamper-chain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 44px; margin: 0; padding: 0; list-style: none; }
+  .ae-tamper-item { position: relative; min-width: 0; }
+  .ae-tamper-link { position: absolute; left: -44px; top: 50%; width: 44px; height: 2px; transform: translateY(-50%); background: oklch(1 0 0 / 0.14); }
+  .ae-tamper-link i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: var(--sovereign); transition: transform 0.6s var(--ae-ease), background-color 0.3s ease; }
+  .ae-tamper-link.ok i { transform: scaleX(1); }
+  .ae-tamper-link.no i { transform: scaleX(1); background: var(--critical); }
+  .ae-tamper-block {
+    min-width: 0; padding: 16px 18px; border-radius: 16px; border: 1px solid oklch(1 0 0 / 0.1); background: oklch(1 0 0 / 0.03);
+    font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.55; color: color-mix(in oklab, var(--foreground) 72%, transparent);
+    transition: border-color 0.3s ease, background-color 0.3s ease;
+  }
+  .ae-tamper-block.broken { border-color: color-mix(in oklab, var(--critical) 72%, transparent); background: color-mix(in oklab, var(--critical) 11%, transparent); }
+  .ae-tamper-block.edited { animation: ae-shake 0.45s ease; }
+  @keyframes ae-shake { 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
+  .ae-tamper-block .seq { display: flex; justify-content: space-between; margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--foreground); }
+  .ae-tamper-block .state.ok { color: var(--sovereign-text); }
+  .ae-tamper-block .state.no { color: var(--critical-text); }
+  .ae-tamper-block .what { margin: 3px 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .ae-tamper-block .field { margin: 9px 0 0; }
+  .ae-tamper-block .k { color: color-mix(in oklab, var(--foreground) 45%, transparent); }
+  .ae-tamper-block .v { color: var(--foreground); }
+  .ae-tamper-block .v.changed { padding: 0 3px; border-radius: 3px; color: var(--critical-text); background: color-mix(in oklab, var(--critical) 18%, transparent); }
+  .ae-tamper-block .hashes { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 9px 0 0; }
+  .ae-tamper-block dt { color: color-mix(in oklab, var(--foreground) 45%, transparent); }
+  .ae-tamper-block dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ae-tamper-block dd.ok { color: var(--sovereign-text); }
+  .ae-tamper-block dd:first-of-type { color: color-mix(in oklab, var(--foreground) 72%, transparent); }
+  .ae-tamper-block dd:first-of-type.ok { color: var(--sovereign-text); }
+  .ae-tamper-block dd:first-of-type.no { color: var(--critical-text); }
+  .ae-tamper-block dd.no { color: var(--critical-text); }
+  .ae-tamper-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; }
+  .ae-tamper-verdict { margin: 0; max-width: 62ch; font-size: 0.9rem; line-height: 1.5; color: color-mix(in oklab, var(--foreground) 80%, transparent); }
+  .ae-tamper-verdict.no { color: var(--critical-text); }
+  @media (max-width: 720px) {
+    .ae-tamper-chain { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    .ae-tamper-link { left: 28px; top: -24px; width: 2px; height: 24px; transform: none; }
+    .ae-tamper-link i { transform-origin: top; transform: scaleY(0); }
+    .ae-tamper-link.ok i, .ae-tamper-link.no i { transform: scaleY(1); }
+  }
+
+  /* The machine, as a boundary. */
+
+  @media (prefers-reduced-motion: reduce) {
+    .ae-tamper-link i, .ae-tamper-block { transition: none; }
+    .ae-tamper-block.edited { animation: none !important; }
+  }
+}
+
+/* ==================================================================== */
+/* IDENTITY — CERTUS                                                      */
+/*                                                                       */
+/* Hi-Vis Monochrome: ink, paper and night, with one lime accent that    */
+/* means "you can act" or "this is cited". The app's                     */
+/* night is the public page's: a neutral black rather than a warm one,   */
+/* with greys to match, so the hero and the thread it leads to are the   */
+/* same dark. Every ratio below is against the darkest ground it sits on */
+/* and the raised surface above it.                                      */
+/* ==================================================================== */
+html[data-theme='dark'],
+[data-theme='dark'] {
+  /* Hi-Vis Monochrome. This block comes last and wins, so it carries the
+     same values as the night block above: an earlier copy of the old
+     palette here silently undid them. */
+  --background: #070707;
+  --surface: #111111;
+  --surface-sunken: #000000;
+  --foreground: #f7f7f4;            /* 19.4:1 */
+  --foreground-secondary: #b8b8b2;  /*  9.9:1 */
+  --foreground-muted: #9a9a95;      /*  7.0:1, 6.6:1 on the surface */
+  --line-ink: oklch(0.92 0 0);
+  --action: #d4f24a;
+  --action-hover: #c3e236;
+  --action-text: #d4f24a;
+  --action-ink: #050505;
+}
+
+/* The sign-in's brand panel: the public page's night, and its light. */
+
+/* ==================================================================== */
+/* THE SHELL — a sidebar                                                 */
+/* From 1024px the workbench's places, its runs and the account sit in a */
+/* fixed sidebar and nothing is fixed across the top, so the top inset   */
+/* is 0; below that a 56px bar holds the menu, and the inset is that.    */
+/* ==================================================================== */
+:root { --sidebar-w: 252px; }
+.app-frame { --shell-top: 56px; }
+@media (min-width: 1024px) {
+  .app-frame { --shell-top: 0px; }
+}
+/* The sidebar's history scrolls with a thin bar and no arrow buttons (a
+   thin standard scrollbar has none), and fades out under the account row. */
+.side-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* A little narrower and quieter than the page's, until the list is under the pointer. */
+.side-scroll::-webkit-scrollbar { width: 8px; }
+.side-scroll::-webkit-scrollbar-thumb { border-width: 2px; background-color: color-mix(in oklab, var(--foreground) 14%, transparent); }
+.side-scroll:hover::-webkit-scrollbar-thumb { background-color: color-mix(in oklab, var(--foreground) 26%, transparent); }
+
+/* ==================================================================== */
+/* HI-VIS AUTH — sign-in, setup, invitation, reset, request access       */
+/* The doors into the workbench, in the Hi-Vis Monochrome voice: square  */
+/* corners, a Martian Mono uppercase label voice, a light semi-condensed */
+/* Archivo display line, one lime action, and a faint vertical grid on   */
+/* the ground. Static CSS: nothing on these screens moves on its own.    */
+/* The People screen borrows the controls, so a decision there looks     */
+/* like the same instrument as the door it opens.                        */
+/* ==================================================================== */
+.hv-auth {
+  min-height: 100dvh;
+  background-color: var(--background);
+  /* One hairline every 96px, at 4% ink: a drafting sheet, not a pattern. */
+  background-image: linear-gradient(to right, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px);
+  background-size: 96px 100%;
+  background-position: -1px 0;
+  color: var(--foreground);
+}
+.hv-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+.hv-display {
+  font-family: var(--font-sans);
+  font-weight: 300;
+  font-stretch: 88%;
+  font-size: clamp(2.1rem, 5vw, 2.9rem);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  color: var(--foreground);
+}
+.hv-input {
+  width: 100%;
+  height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--line-default);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.hv-input::placeholder { color: var(--foreground-muted); }
+.hv-input:hover { border-color: color-mix(in oklab, var(--foreground) 32%, transparent); }
+.hv-input:focus { border-color: var(--action); box-shadow: 0 0 0 1px var(--action); }
+.hv-input[aria-invalid='true'] { border-color: var(--critical); }
+.hv-input.mono { font-family: var(--font-mono); font-size: 0.85rem; letter-spacing: 0.04em; }
+.hv-input.sm { height: 34px; font-size: 0.875rem; }
+textarea.hv-input { height: auto; min-height: 92px; padding: 10px 12px; resize: vertical; line-height: 1.5; }
+.hv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 18px;
+  border: 1px solid var(--action);
+  border-radius: 2px;
+  background: var(--action);
+  color: var(--action-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.hv-btn:hover:not(:disabled) { background: var(--action-hover); border-color: var(--action-hover); }
+.hv-btn:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; }
+.hv-btn:disabled { opacity: 0.55; cursor: default; }
+.hv-btn.quiet { background: transparent; border-color: var(--line-default); color: var(--foreground); }
+.hv-btn.quiet:hover:not(:disabled) { background: color-mix(in oklab, var(--foreground) 6%, transparent); border-color: var(--line-default); }
+.hv-btn.danger { background: transparent; border-color: color-mix(in oklab, var(--critical) 55%, transparent); color: var(--critical-text); }
+.hv-btn.danger:hover:not(:disabled) { background: color-mix(in oklab, var(--critical) 10%, transparent); border-color: var(--critical); }
+.hv-btn.sm { height: 32px; padding: 0 12px; font-size: 10px; }
+.hv-link {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.12s ease;
+}
+.hv-link:hover { text-decoration-color: var(--action); }
+.hv-link:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; border-radius: 1px; }
+.hv-panel { border: 1px solid var(--line-subtle); border-radius: 2px; background: var(--surface); }
+.hv-code {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--action-text);
+  word-break: break-all;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hv-input, .hv-btn, .hv-link { transition: none; }
+}
+
+/* ==================================================================== */
+/* THE THREAD'S INTERACTIONS                                             */
+/* Unlayered, so they sit over the signature motions they refine.        */
+/* ==================================================================== */
+
+/* A transcript sub-line an event added while the reader watched: the    */
+/* Append motion at the spatial distance, rising 8px out of nothing over */
+/* 200ms, staggered 40ms within its batch and capped at five. Reduced    */
+/* motion zeroes the distance, the duration and the stagger, and the     */
+/* rule below takes the animation off outright.                          */
+.certus-append.thread-sub {
+  --rise: var(--shift-md);
+  animation-name: thread-sub-in;
+}
+@keyframes thread-sub-in {
+  from { opacity: 0; transform: translateY(var(--rise)); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .certus-append.thread-sub { animation: none; }
+}
+
+/* A citation that resolves to recorded evidence is something the reader */
+/* can act on, so it takes the one accent: a ~12% lime tint with lime    */
+/* text at night. By day lime text on paper is unreadable (about 1.3:1), */
+/* so the tint is stronger and the ink is a deep olive of the same hue:  */
+/* 8.2:1 on its own tint. At night lime on its tint measures ~12:1.     */
+:root,
+[data-theme='light'] {
+  --cite-wash: color-mix(in oklab, #d4f24a 40%, var(--background));
+  --cite-wash-hover: color-mix(in oklab, #d4f24a 62%, var(--background));
+  --cite-ink: #3d4c00;
+}
+html[data-theme='dark'],
+[data-theme='dark'] {
+  --cite-wash: color-mix(in oklab, #d4f24a 12%, transparent);
+  --cite-wash-hover: color-mix(in oklab, #d4f24a 22%, transparent);
+  --cite-ink: #d4f24a;
+}
+
+/* The draft stepping aside for the checked answer: opacity only, on the */
+/* exit curve, inside a box held at the draft's height. The component    */
+/* skips this entirely under reduced motion; --micro is zero there too.  */
+.thread-draft-leave {
+  animation: thread-fade-out var(--micro) var(--ease-exit) forwards;
+}
+@keyframes thread-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* ==================================================================== */
+/* THE BRIEF — a checked prose answer, typeset (features/thread/ui/brief) */
+/* Classy in the type: the lede in light, semi-condensed Archivo; claims  */
+/* numbered in Martian Mono between 1px rules; the sources the answer     */
+/* cites in the margin; a square stamp and the crew to sign it off.       */
+/* Playful in the motion, which only a live release gets: rows rise on a  */
+/* 40ms stagger, the stamp lands on the lock curve, the crew ticks on.    */
+/* ==================================================================== */
+.brief {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.brief-main { min-width: 0; }
+.brief-lede {
+  font-family: var(--font-sans);
+  font-weight: 300;
+  font-stretch: 92%;
+  font-size: clamp(1.3rem, 2.4vw, 1.575rem);
+  line-height: 1.28;
+  letter-spacing: -0.015em;
+  color: var(--foreground);
+  text-wrap: pretty;
+}
+.brief-claims {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.brief-claim {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  padding: 11px 0;
+  border-top: 1px solid var(--line-subtle);
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--foreground);
+}
+.brief-index,
+.brief-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+.brief-index { padding-top: 5px; font-variant-numeric: tabular-nums; }
+.brief-rail {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.brief-rail .brief-label { margin-bottom: 6px; }
+.brief-source {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-subtle);
+  text-align: left;
+  color: var(--foreground-secondary);
+  transition: color 0.12s ease;
+}
+.brief-source:hover,
+.brief-source[data-trace-lit] { color: var(--foreground); }
+.brief-source:focus-visible { outline: none; box-shadow: var(--focus-ring-on-paper); }
+.brief-source-name { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brief-source-meta {
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--foreground-muted);
+  font-variant-numeric: tabular-nums;
+}
+.brief-signoff {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-default);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+}
+.brief-stamp-tilt { display: inline-block; transform: rotate(-2deg); }
+.brief-stamp {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  border-radius: 0;
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.brief-stamp-ok { color: var(--cite-ink); }
+.brief-stamp-held { color: var(--approval-text); }
+.brief-stamp-critical { color: var(--critical-text); }
+.brief-stamp-neutral { color: var(--foreground-secondary); }
+.brief-crew {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.brief-crew-chip {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  color: var(--foreground-secondary);
+  cursor: default;
+}
+.brief-crew-chip.is-skipped {
+  border-style: dashed;
+  border-color: var(--line-default);
+  color: color-mix(in oklab, var(--foreground-muted) 70%, transparent);
+}
+.brief-meta { margin-left: auto; text-transform: none; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+/* Two deliberate lines: the stamp and the run's time and model, then the */
+/* crew under them, rather than whatever the column width wraps into.     */
+.brief-signoff .brief-crew { order: 3; flex-basis: 100%; }
+.brief-signoff .brief-meta { order: 2; }
+
+/* The margin: beside the claims from 1024px, below them under that. */
+@media (min-width: 1024px) {
+  .brief { grid-template-columns: minmax(0, 1fr) 200px; column-gap: 28px; }
+  .brief-rail {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    padding-left: 16px;
+    border-left: 1px solid var(--line-default);
+  }
+  .brief-signoff { grid-column: 1 / -1; }
+}
+/* With room beside the 768px column -- at 1500px, past the 252px sidebar,  */
+/* 240px is free right of it -- the rail moves out into it, and the claims  */
+/* keep the column's full measure. Not while the evidence rail is docked    */
+/* on the right: it takes that room.                                        */
+@media (min-width: 1500px) {
+  .thread-column:not([data-rail-docked]) .brief {
+    grid-template-columns: minmax(0, 1fr) 220px;
+    margin-right: -248px;
+  }
+}
+
+/* Only on a live release; the component adds none of it under reduced motion. */
+.brief-rise {
+  animation: brief-rise 420ms cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+@keyframes brief-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brief-rise,
+  .brief .hv-lock,
+  .brief .hv-tick { animation: none; opacity: 1; transform: none; }
+}

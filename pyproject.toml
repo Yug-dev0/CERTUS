@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "certus"
+version = "0.1.0"
+description = "Answers your plant can prove: an air-gapped AI workbench for regulated industrial work"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Yug Patel", email = "yug.dev04@gmail.com" }
+]
+maintainers = [
+  { name = "Yug Patel", email = "yug.dev04@gmail.com" }
+]
+license = { text = "MIT" }
+keywords = ["industrial-ai", "air-gapped", "local-llm", "asset-integrity", "deterministic-engineering"]
+

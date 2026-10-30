@@ -1,0 +1,431 @@
+/* ------------------------------------------------------------------ */
+/* HI-VIS MOTION SYSTEM                                                */
+/*                                                                     */
+/* Seven named motions, each for one kind of event. Plain classes, so  */
+/* any surface can use them -- Harness Control first, the landing later: */
+/*                                                                     */
+/*   hv-tick   120ms steps(2)   a cell or counter changes after an event */
+/*   hv-roll   600ms            a measured number moves to a new reading */
+/*   hv-scan   1600ms loop      only while a real "retrieving" holds     */
+/*   hv-lock   280ms            brackets land on a supported claim       */
+/*   hv-trace  420ms            a claim -> evidence edge draws           */
+/*   hv-seal   ~900ms           hex resolves, rule wipes, SEALED stamps  */
+/*   hv-caret  1000ms steps(2)  the tail of a live token stream          */
+/*                                                                     */
+/* Three rules the classes cannot enforce and callers must:            */
+/*  - Motion marks an event. A class is added when something the       */
+/*    backend emitted changed, never on an idle screen or on first     */
+/*    paint of a state that was already true.                          */
+/*  - A key press never starts one. What a key changes, changes at     */
+/*    once.                                                            */
+/*  - One lime motion at a time. Scan runs only during retrieval,      */
+/*    lock only as a child settles, seal only after every child has:   */
+/*    the serial worker keeps them apart; do not overlap them by hand. */
+/*                                                                     */
+/* Reduced motion (bottom of this file): everything becomes a 0-120ms  */
+/* opacity change; scan becomes a static lime hairline beside its      */
+/* label; roll and seal show their final value; trace draws whole; the */
+/* caret holds solid.                                                  */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --hv-lime: var(--action);
+  --hv-ok: var(--sovereign-text);
+  --hv-held: var(--approval-text);
+  --hv-critical: var(--critical-text);
+
+  --hv-tick-dur: 120ms;
+  --hv-roll-dur: 600ms;
+  --hv-roll-ease: cubic-bezier(0.25, 1, 0.5, 1);
+  --hv-scan-dur: 1600ms;
+  --hv-lock-dur: 280ms;
+  --hv-lock-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --hv-trace-dur: 420ms;
+  --hv-trace-ease: cubic-bezier(0.65, 0, 0.35, 1);
+  --hv-seal-stagger: 12ms;
+  --hv-seal-rule: 160ms;
+  --hv-caret-dur: 1000ms;
+}
+
+/* ---------------------------------------------------------------- tick */
+/* Hollow to filled in two hard steps: a relay, not a fade. Put it on the
+   element whose state changed, keyed so it remounts on the change. */
+.hv-tick {
+  animation: hv-tick var(--hv-tick-dur) steps(2, end) both;
+}
+@keyframes hv-tick {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------------------------------------------------------------- roll */
+/* Retimes MeasuredNumber's digit wheel (shared/motion) to the Hi-Vis
+   roll: wrap it in .hv-roll. It already refuses to count up from zero on
+   load and never shows a value between two readings. The standalone
+   pair below is for a surface that rolls its own digits. */
+.hv-roll .certus-roll-in,
+.hv-roll .certus-roll-out {
+  animation-duration: var(--hv-roll-dur);
+  animation-timing-function: var(--hv-roll-ease);
+}
+
+/* ---------------------------------------------------------------- scan */
+/* A 1px lime line with a 32px tail fading from 12% to nothing, sweeping
+   the element. Set the class only while a real retrieving state holds;
+   removing it stops the loop. */
+.hv-scan {
+  position: relative;
+  overflow: hidden;
+}
+.hv-scan::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -33px;
+  width: 33px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--hv-lime), var(--hv-lime)) right / 1px 100% no-repeat,
+    linear-gradient(
+      to right,
+      transparent,
+      color-mix(in srgb, var(--hv-lime) 12%, transparent)
+    ) left / 32px 100% no-repeat;
+  animation: hv-scan var(--hv-scan-dur) linear infinite;
+}
+@keyframes hv-scan {
+  from { left: -33px; }
+  to { left: 100%; }
+}
+/* The words that say what the scan means. Visible in every mode, so the
+   meaning never rests on the motion. */
+.hv-scan-label {
+  color: var(--hv-lime);
+}
+
+/* ---------------------------------------------------------------- lock */
+/* 8px corner brackets. .hv-lock-frame draws them (HTML: as an overlay;
+   SVG: draw four paths inside a <g class="hv-lock-frame">). .hv-lock adds
+   the landing, from 1.4x to 1x; add it only when the claim has just been
+   found supported. data-tone="partial" turns them amber. */
+.hv-lock-frame {
+  --hv-lock-color: var(--hv-lime);
+  color: var(--hv-lock-color);
+  stroke: var(--hv-lock-color);
+}
+.hv-lock-frame[data-tone='partial'] {
+  --hv-lock-color: var(--hv-held);
+}
+div.hv-lock-frame,
+span.hv-lock-frame {
+  position: absolute;
+  inset: -4px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top left / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top left / 1px 8px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top right / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top right / 1px 8px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom left / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom left / 1px 8px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom right / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom right / 1px 8px no-repeat;
+}
+.hv-lock {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hv-lock var(--hv-lock-dur) var(--hv-lock-ease) both;
+}
+@keyframes hv-lock {
+  from { transform: scale(1.4); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* --------------------------------------------------------------- trace */
+/* For an SVG path drawn with pathLength="1": the edge draws from its
+   source to its target once, then stays. */
+.hv-trace {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: hv-trace var(--hv-trace-dur) var(--hv-trace-ease) forwards;
+}
+@keyframes hv-trace {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ---------------------------------------------------------------- seal */
+/* Three beats, all in CSS so nothing has to be timed in script:
+   each .hv-seal-char (style --i: its index) resolves left to right at
+   12ms a character; then .hv-seal-rule (style --n: character count)
+   wipes in over 160ms; then .hv-seal-stamp appears in one step. Put the
+   parts inside .hv-seal only when the thing sealed has just been
+   released; a report already released when the page opened is shown
+   sealed, without the sequence. */
+.hv-seal .hv-seal-char {
+  animation: hv-seal-char 1ms steps(1, end) both;
+  animation-delay: calc(var(--i, 0) * var(--hv-seal-stagger));
+}
+@keyframes hv-seal-char {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.hv-seal-rule {
+  display: block;
+  height: 1px;
+  background: var(--hv-lime);
+  transform-origin: left center;
+}
+.hv-seal .hv-seal-rule {
+  animation: hv-seal-rule var(--hv-seal-rule) linear both;
+  animation-delay: calc(var(--n, 0) * var(--hv-seal-stagger));
+}
+@keyframes hv-seal-rule {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.hv-seal .hv-seal-stamp {
+  animation: hv-seal-stamp 1ms steps(1, end) both;
+  animation-delay: calc(var(--n, 0) * var(--hv-seal-stagger) + var(--hv-seal-rule));
+}
+@keyframes hv-seal-stamp {
+  from { visibility: hidden; }
+  to { visibility: visible; }
+}
+
+/* --------------------------------------------------------------- caret */
+.hv-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: hv-caret var(--hv-caret-dur) steps(2, jump-none) infinite;
+}
+@keyframes hv-caret {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ------------------------------------------------------ reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .hv-tick,
+  .hv-lock {
+    animation: hv-fade var(--hv-tick-dur) linear both;
+    animation-delay: 0ms;
+    transform: none;
+    clip-path: none;
+  }
+  .hv-roll .certus-roll-in,
+  .hv-roll .certus-roll-out {
+    animation: none;
+    transform: none;
+  }
+  .hv-roll .certus-roll-out {
+    visibility: hidden;
+  }
+  .hv-scan::after {
+    animation: none;
+    left: auto;
+    right: 0;
+    width: 1px;
+    background: var(--hv-lime);
+  }
+  .hv-trace {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .hv-seal .hv-seal-char,
+  .hv-seal .hv-seal-rule,
+  .hv-seal .hv-seal-stamp {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+  }
+  .hv-caret {
+    animation: none;
+    opacity: 1;
+  }
+}
+@keyframes hv-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ==================================================================== */
+/* LOCK-ON — the reticle closing on what the pointer or focus is on     */
+/*                                                                      */
+/* For a card or row that opens something. The mark's four 8px corner  */
+/* brackets close onto it from 1.05x in 140ms while it is hovered or    */
+/* keyboard-focused, and leave in 80ms when it is not. The pointer or   */
+/* the focus is the event; nothing locks on an idle screen. One          */
+/* pseudo-element (::before), so the host keeps its own ::after, its    */
+/* shadows and its focus ring. --hv-lockon-inset moves the brackets in   */
+/* from the edge; a large card can lower --hv-lockon-from.              */
+/* ==================================================================== */
+.hv-lockon {
+  position: relative;
+}
+.hv-lockon::before {
+  --hv-lock-color: var(--hv-lime);
+  content: '';
+  position: absolute;
+  inset: var(--hv-lockon-inset, 4px);
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top left / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top left / 1px 8px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top right / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) top right / 1px 8px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom left / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom left / 1px 8px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom right / 8px 1px no-repeat,
+    linear-gradient(var(--hv-lock-color), var(--hv-lock-color)) bottom right / 1px 8px no-repeat;
+  opacity: 0;
+  transform: scale(var(--hv-lockon-from, 1.05));
+  transition:
+    opacity 80ms linear,
+    transform 80ms linear;
+}
+@media (hover: hover) {
+  .hv-lockon:hover:not(:disabled)::before {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 60ms linear,
+      transform 140ms var(--hv-lock-ease);
+  }
+}
+.hv-lockon:focus-visible::before {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 60ms linear,
+    transform 140ms var(--hv-lock-ease);
+}
+
+/* The quick lock: .hv-lock at the key-press ceiling, for a control a
+   keystroke can arm (the composer's send button). */
+.hv-lock.hv-quick {
+  animation-duration: 140ms;
+}
+
+/* The lock in the tone of what it stamps: a decision's brackets take the
+   decision's own colour from the text they frame. */
+.hv-lock-frame[data-tone='current'] {
+  --hv-lock-color: currentColor;
+}
+
+/* ==================================================================== */
+/* FOCUS RULE — the composer's lime rule drawing along its top edge     */
+/* while the field has focus. 150ms: a Tab or a click puts it there.     */
+/* ==================================================================== */
+.hv-focus-rule {
+  position: relative;
+}
+.hv-focus-rule::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: var(--hv-rule-inset, 12px);
+  right: var(--hv-rule-inset, 12px);
+  height: 1px;
+  pointer-events: none;
+  background: var(--hv-lime);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 150ms var(--hv-trace-ease);
+}
+.hv-focus-rule:focus-within::after {
+  transform: scaleX(1);
+}
+
+/* ==================================================================== */
+/* SCAN RULE — a hairline track carrying .hv-scan, under a line that    */
+/* says what is being read. Mounted only while the read is in flight;   */
+/* unmounting it is the scan stopping.                                   */
+/* ==================================================================== */
+.hv-scan-rule {
+  display: block;
+  height: 1px;
+  width: 100%;
+  max-width: 240px;
+  background: var(--line-subtle, #2b2b2b);
+}
+/* On a 1px track the scan's vertical line would be a dot: here the head
+   is a 48px lime segment with its tail behind it, on the same clock.
+   Reduced motion leaves it still at the track's far end. */
+.hv-scan-rule.hv-scan::after {
+  left: -48px;
+  width: 48px;
+  background: linear-gradient(to right, transparent, var(--hv-lime));
+}
+
+/* ==================================================================== */
+/* WIPE — night to paper and back, left to right in 150ms, driven by    */
+/* the View Transitions API from the theme switch. The old theme stays  */
+/* under the new one until the wipe has crossed it.                     */
+/* ==================================================================== */
+@keyframes hv-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+html[data-hv-wipe]::view-transition-old(root) {
+  display: block;
+  animation: none;
+}
+html[data-hv-wipe]::view-transition-new(root) {
+  animation: hv-wipe 150ms var(--hv-trace-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hv-lockon::before,
+  .hv-lockon:hover:not(:disabled)::before,
+  .hv-lockon:focus-visible::before {
+    transform: none;
+    transition: opacity 80ms linear;
+  }
+  .hv-focus-rule::after {
+    transform: none;
+    opacity: 0;
+    transition: opacity 80ms linear;
+  }
+  .hv-focus-rule:focus-within::after {
+    opacity: 1;
+  }
+  html[data-hv-wipe]::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+/* ==================================================================== */
+/* MARK — the lock closing, once, where a caller asks for it            */
+/* The brackets come in from 1.5x onto the seal (the lock curve), then  */
+/* the core ticks on. Reduced motion draws the closed mark.             */
+/* ==================================================================== */
+:root,
+[data-theme='light'] { --mark-core: #5f6e00; }
+[data-theme='dark'] { --mark-core: #d4f24a; }
+.hv-mark-intro .hv-mark-brackets {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: hv-mark-close 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.hv-mark-intro .hv-mark-core {
+  animation: hv-mark-tick 120ms steps(2, end) 420ms both;
+}
+@keyframes hv-mark-close {
+  from { transform: scale(1.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes hv-mark-tick {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hv-mark-intro .hv-mark-brackets,
+  .hv-mark-intro .hv-mark-core { animation: none; opacity: 1; transform: none; }
+}

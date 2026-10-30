@@ -1,0 +1,17 @@
+# Environment variables (.env.example is tracked on purpose)
+.env
+.env*.local
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/

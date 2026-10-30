@@ -1,0 +1,148 @@
+# Human-in-the-loop approval rules and verification thresholds.
+
+policy_version: 1
+
+# A task pauses at the approval gate when ANY rule matches.
+approval_required_when:
+  - name: sensitive_classification
+    description: Sensitive or restricted work always needs an approving authority.
+    match:
+      sensitivity_in: [sensitive, restricted]
+    approver_roles: [reviewer, administrator]
+
+  - name: released_deliverable
+    description: Any artifact that leaves the workbench needs sign-off.
+    match:
+      produces_deliverable: true
+    approver_roles: [reviewer, administrator]
+
+  - name: verification_failure
+    description: Failed verification cannot be auto-delivered; a human decides.
+    match:
+      verification_valid: false
+    approver_roles: [reviewer, administrator]
+
+  - name: low_confidence_classification
+    description: If the analyzer was unsure, a human confirms before release.
+    # Only when there is something to release. A question that returns an
+    # answer and writes no file releases nothing, so holding it produced a
+    # queue of items that could never usefully be approved — and the answer
+    # the user asked for sat behind a gate for no benefit.
+    requires_deliverable: true
+    match:
+      classification_confidence_below: 0.35
+    approver_roles: [reviewer, administrator]
+
+  - name: unresolved_conflict
+    description: The sources disagree about an input the decision depends on; a person must choose before anything is released.
+    match:
+      unresolved_conflicts: true
+    approver_roles: [reviewer, administrator]
+
+  - name: human_decision
+    description: The answer states a disposition (continued service, return to service, deferral) that only the approving authority can take.
+    match:
+      decision_claims: true
+    approver_roles: [reviewer, administrator]
+
+  - name: untrusted_instructions
+    description: Evidence contains text addressed to the model; it was withheld from the model, and a person reviews the run.
+    match:
+      instruction_like_evidence: true
+    approver_roles: [reviewer, administrator]
+
+  - name: sensitive_content
+    description: Content scanning found a value whose policy is to hold the run or withhold the content (policies/dlp.yaml); a person decides what is released.
+    match:
+      dlp_findings: true
+    approver_roles: [reviewer, administrator]
+
+  - name: isolation_plan
+    description: An isolation plan is signed off by an authorised person before anyone works to it (SOP-OPS-015).
+    match:
+      isolation_plan: true
+    approver_roles: [reviewer, administrator]
+
+  # A High finding is not released by one reviewer. SOP-INS-014 Clause 5.1
+  # names the Head of Inspection + Plant Manager, and SOP-OPS-008 Clauses 2.3
+  # and 3.5 say both sign: the Head of Inspection recommending, then the Plant
+  # Manager approving. `signatures` lists them in that order. Each must be a
+  # different person with that role, neither may be the one who ran the task,
+  # and each is bound to the review digest of the version signed; a change to
+  # the run voids the signatures already given. Where a rule with signatures
+  # matches, only its roles decide the task (SOP-OPS-008 Clause 3.1: the
+  # highest authority named applies).
+  - name: high_severity_finding
+    description: A High finding needs two signatures, the Head of Inspection recommending and the Plant Manager approving (SOP-INS-014 Clause 5.1; SOP-OPS-008 Clauses 2.3 and 3.5).
+    match:
+      severity_in: [high]
+    approver_roles: [head_of_inspection, plant_manager]
+    signatures:
+      - role: head_of_inspection
+        authority: Head of Inspection
+        capacity: recommends
+        clause: SOP-OPS-008 Clause 2.3
+      - role: plant_manager
+        authority: Plant Manager
+        capacity: approves
+        clause: SOP-OPS-008 Clause 2.3
+
+  # SOP-INS-021 Clause 6.1 permits interim operation of equipment awaiting a
+  # Fitness-For-Service assessment only at or below 90% of its registered
+  # MAWP. The corpus gives a breach no severity, so none is invented: the run
+  # is held for the authorities who approve interim operation (SOP-INS-021
+  # Clause 6.2; SOP-OPS-008 Clause 2.8). Both approve that decision; this
+  # rule names them as its deciders but does not yet enforce two signatures,
+  # which the policy attaches to severities only.
+  - name: interim_operation_limit
+    description: Operating pressure exceeds 90% of MAWP while the equipment awaits a Fitness-For-Service assessment, so interim operation is not permitted (SOP-INS-021 Clause 6.1); interim operation is approved by the Head of Inspection and the Plant Manager (SOP-INS-021 Clause 6.2; SOP-OPS-008 Clause 2.8).
+    match:
+      operating_limit_breaches: true
+    approver_roles: [head_of_inspection, plant_manager]
+
+  - name: safety_recommendation
+    description: Safety-related recommendations are never released unreviewed.
+    match:
+      prompt_contains_any: ["safety", "hazard", "shutdown", "incident", "statutory"]
+    approver_roles: [reviewer, administrator]
+
+# Verification engine thresholds.
+verification:
+  # A material claim is a sentence carrying a number, a limit, or a directive
+  # verb. Material claims must be supported by retrieved evidence or by a
+  # recomputed calculation, otherwise the hallucination check fails.
+  material_claim_patterns:
+    - "\\b\\d+(?:\\.\\d+)?\\s*(mm|cm|m|kg|t|bar|psi|kpa|mpa|°c|degc|%|hrs?|hours?|days?|years?)\\b"
+    - "\\b(shall|must|required to|not permitted|prohibited|mandatory)\\b"
+    - "\\b(clause|section|para|paragraph|table)\\s+[0-9ivx.]+\\b"
+    # A sentence carrying a citation is a sourced factual assertion by
+    # construction: the model reached for evidence to back it. Without this
+    # the patterns above only caught sentences containing a quantity or a
+    # directive verb, so "The approving authority for this severity
+    # classification is the Head of Inspection + Plant Manager [S4]" was not
+    # counted as a claim at all -- and an answer making three assertions was
+    # reported as "1 of 1 material claims supported (100%)", which is a far
+    # stronger statement than examining one sentence of three can justify.
+    - "\\[[SFVCEHT]\\d+\\]"
+    # An engineering conclusion or a disposition is material whether or not
+    # it carries a number. "Severity is Low." and "V-2104 may continue in
+    # service." carried none, cited nothing, and so were never examined --
+    # the two most consequential sentences an answer can contain.
+    - "\\b(severity|remaining life|corrosion rate|t-?min|fitness-for-service)\\b"
+    - "\\b(continued? (in )?(service|operation)|remains? in service|return(ed)? to service|fit for (continued )?service|safe to operate|may (continue|operate))\\b"
+  min_evidence_per_material_claim: 1
+  # Fraction of material claims that must be supported for the check to pass.
+  min_supported_fraction: 0.6
+  # Numeric results asserted by the model are recomputed independently in the
+  # sandbox; a relative difference above this fails the calculation check.
+  calculation_tolerance: 0.01
+  # Generated code must exit cleanly to pass code verification.
+  code_must_exit_zero: true
+  # Retries allowed before the task escalates to a human instead of replanning.
+  max_replans: 2
+
+# Escalation behaviour when the system cannot verify (fail-safe principle §15.7).
+on_unverifiable:
+  action: escalate_to_human
+  block_delivery: true
+  audit_event: verification_unresolved

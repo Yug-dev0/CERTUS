@@ -1,0 +1,737 @@
+"""SQLite persistence layer.
+
+The reference architecture calls for PostgreSQL; on a single-host deployment
+SQLite provides the same relational guarantees we need (users, tasks, files,
+sessions, knowledge documents, approvals) without another service to operate.
+The access layer below is deliberately narrow so swapping the engine later
+means replacing this module, not the callers.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator
+
+from backend.core.config import get_config
+
+SCHEMA = """
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    department TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    -- SHA-256 of an opaque bearer token. The token itself must never become a
+    -- reusable credential merely because a local database is read.
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS files (
+    id TEXT PRIMARY KEY,
+    task_id TEXT,
+    filename TEXT NOT NULL,
+    stored_path TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    input_type TEXT NOT NULL,
+    classification TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    department TEXT NOT NULL,
+    quarantine_passed INTEGER NOT NULL DEFAULT 1,
+    quarantine_notes TEXT NOT NULL DEFAULT '[]',
+    uploaded_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    department TEXT,
+    prompt TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    department TEXT NOT NULL,
+    classification TEXT NOT NULL,
+    version TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    ingested_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,
+    location TEXT,
+    content TEXT NOT NULL,
+    token_estimate INTEGER NOT NULL,
+    embedding BLOB,
+    embedding_model TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_document ON knowledge_chunks(document_id);
+
+-- Account provisioning (backend/core/accounts.py). Every account on a
+-- production host traces to one of these rows or to the owner setup, so an
+-- auditor can answer "who let this person in, and as what" from the database
+-- as well as from the audit chain.
+
+-- The one-time token that creates the first administrator. Only its SHA-256
+-- is kept: the token itself is written to storage/setup-token for whoever
+-- holds the machine, and a copy of this table is not a way in.
+CREATE TABLE IF NOT EXISTS setup_tokens (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+-- Invitation codes, stored as hashes. Status is derived from the timestamps
+-- (revoked, used, expired, else open) so no row can say two things at once.
+CREATE TABLE IF NOT EXISTS invites (
+    id TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL,
+    department TEXT NOT NULL,
+    display_name TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    used_by TEXT,
+    revoked_at TEXT,
+    revoked_by TEXT
+);
+
+-- Administrator-issued password reset codes; same shape and rules as invites.
+CREATE TABLE IF NOT EXISTS password_resets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    revoked_at TEXT
+);
+
+-- A request for access. The requester's account exists from the moment of
+-- asking -- inactive, with only the password hash -- and becomes usable only
+-- when an administrator approves it with a role and department of their own
+-- choosing. A rejected request's account is removed.
+CREATE TABLE IF NOT EXISTS access_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    username TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    requested_role TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    decided_by TEXT,
+    granted_role TEXT,
+    granted_department TEXT,
+    decision_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status, created_at);
+"""
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class Database:
+    """Thin synchronous SQLite wrapper.
+
+    FastAPI handlers call these methods from a worker thread (``run_in_threadpool``
+    via ``def`` endpoints or explicit ``asyncio.to_thread``), so a per-call
+    connection keeps this safe without a connection pool.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        config = get_config()
+        self.path = path or config.settings.path("database")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialise()
+
+    # -- plumbing ----------------------------------------------------------
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(self.path, timeout=30.0)
+        connection.row_factory = sqlite3.Row
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    # Columns added after a table was first created. SQLite has no
+    # "ADD COLUMN IF NOT EXISTS", so each is added only when missing: an
+    # existing workbench database upgrades in place and nothing is dropped.
+    _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+        "knowledge_documents": [
+            # Document identity is separate from the uploaded file: one code,
+            # many revisions, exactly one of them active.
+            ("document_code", "TEXT"),
+            ("revision_status", "TEXT NOT NULL DEFAULT 'active'"),
+            ("effective_date", "TEXT"),
+            ("supersedes", "TEXT"),
+            ("superseded_by", "TEXT"),
+        ],
+        "users": [
+            # How the account came to exist (seed, owner, invite, request,
+            # register) and which administrator provisioned it. Accounts made
+            # before provisioning was recorded read as NULL, not as a guess.
+            ("origin", "TEXT"),
+            ("provisioned_by", "TEXT"),
+        ],
+    }
+
+    def _initialise(self) -> None:
+        with self.connect() as connection:
+            connection.executescript(SCHEMA)
+            for table, columns in self._ADDED_COLUMNS.items():
+                present = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+                for name, definition in columns:
+                    if name not in present:
+                        connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+    # -- users -------------------------------------------------------------
+    def count_users(self) -> int:
+        with self.connect() as connection:
+            row = connection.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+            return int(row["n"])
+
+    def insert_user(self, record: dict[str, Any]) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO users (id, username, display_name, role, department,
+                                   password_hash, active, created_at,
+                                   origin, provisioned_by)
+                VALUES (:id, :username, :display_name, :role, :department,
+                        :password_hash, :active, :created_at,
+                        :origin, :provisioned_by)
+                """,
+                {
+                    "origin": None,
+                    "provisioned_by": None,
+                    **record,
+                    "created_at": record.get("created_at", _utcnow()),
+                },
+            )
+
+    def update_user(self, user_id: str, **fields: Any) -> None:
+        """Set named columns on one user. Column names come from code, never input."""
+        allowed = {"role", "department", "display_name", "password_hash", "active",
+                   "origin", "provisioned_by"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"Not an updatable user column: {sorted(unknown)}")
+        if not fields:
+            return
+        assignments = ", ".join(f"{name} = :{name}" for name in fields)
+        with self.connect() as connection:
+            connection.execute(
+                f"UPDATE users SET {assignments} WHERE id = :id", {**fields, "id": user_id}
+            )
+
+    def delete_user(self, user_id: str) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    def delete_user_sessions(self, user_id: str) -> int:
+        with self.connect() as connection:
+            cursor = connection.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            return cursor.rowcount
+
+    def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_user(self, user_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_users(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM users ORDER BY username"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    # -- sessions ----------------------------------------------------------
+    def create_session(self, token_hash: str, user_id: str, issued_at: str, expires_at: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO sessions (token, user_id, issued_at, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (token_hash, user_id, issued_at, expires_at),
+            )
+
+    def get_session(self, token_hash: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM sessions WHERE token = ?", (token_hash,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_session(self, token_hash: str) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM sessions WHERE token = ?", (token_hash,))
+
+    # -- provisioning --------------------------------------------------------
+    def replace_setup_token(self, record: dict[str, Any]) -> None:
+        """Keep exactly one setup token: issuing a new one retires the last."""
+        with self.connect() as connection:
+            connection.execute("DELETE FROM setup_tokens")
+            connection.execute(
+                "INSERT INTO setup_tokens (id, token_hash, created_at, expires_at) "
+                "VALUES (:id, :token_hash, :created_at, :expires_at)",
+                record,
+            )
+
+    def get_setup_token(self) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM setup_tokens LIMIT 1").fetchone()
+            return dict(row) if row else None
+
+    def delete_setup_tokens(self) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM setup_tokens")
+
+    def insert_invite(self, record: dict[str, Any]) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO invites (id, code_hash, role, department, display_name,
+                                     created_by, created_at, expires_at)
+                VALUES (:id, :code_hash, :role, :department, :display_name,
+                        :created_by, :created_at, :expires_at)
+                """,
+                record,
+            )
+
+    def get_invite(self, invite_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM invites WHERE id = ?", (invite_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_invite_by_hash(self, code_hash: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM invites WHERE code_hash = ?", (code_hash,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_invites(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM invites ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def claim_invite(self, invite_id: str, used_by: str, now: str) -> bool:
+        """Mark an invite used, only if it is still open. False if it was not.
+
+        One conditional UPDATE, so two people racing the same code cannot both
+        be told it was theirs.
+        """
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE invites SET used_at = ?, used_by = ? "
+                "WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?",
+                (now, used_by, invite_id, now),
+            )
+            return cursor.rowcount == 1
+
+    def revoke_invite(self, invite_id: str, revoked_by: str, now: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE invites SET revoked_at = ?, revoked_by = ? "
+                "WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL",
+                (now, revoked_by, invite_id),
+            )
+            return cursor.rowcount == 1
+
+    def insert_password_reset(self, record: dict[str, Any]) -> None:
+        with self.connect() as connection:
+            # One open code per account: a new one retires any earlier.
+            connection.execute(
+                "UPDATE password_resets SET revoked_at = :created_at "
+                "WHERE user_id = :user_id AND used_at IS NULL AND revoked_at IS NULL",
+                record,
+            )
+            connection.execute(
+                """
+                INSERT INTO password_resets (id, user_id, code_hash, created_by,
+                                             created_at, expires_at)
+                VALUES (:id, :user_id, :code_hash, :created_by, :created_at, :expires_at)
+                """,
+                record,
+            )
+
+    def get_password_reset_by_hash(self, code_hash: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM password_resets WHERE code_hash = ?", (code_hash,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def claim_password_reset(self, reset_id: str, now: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE password_resets SET used_at = ? "
+                "WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?",
+                (now, reset_id, now),
+            )
+            return cursor.rowcount == 1
+
+    def insert_access_request(self, record: dict[str, Any]) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO access_requests (id, user_id, username, display_name,
+                                             requested_role, reason, status, created_at)
+                VALUES (:id, :user_id, :username, :display_name, :requested_role,
+                        :reason, :status, :created_at)
+                """,
+                record,
+            )
+
+    def get_access_request(self, request_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM access_requests WHERE id = ?", (request_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def pending_request_for_user(self, user_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM access_requests WHERE user_id = ? AND status = 'pending'",
+                (user_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_access_requests(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                # Pending first, oldest first within them: the queue is worked
+                # in the order people asked.
+                "SELECT * FROM access_requests "
+                "ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, "
+                "CASE status WHEN 'pending' THEN created_at END ASC, "
+                "COALESCE(decided_at, created_at) DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def decide_access_request(self, request_id: str, **fields: Any) -> bool:
+        """Record a decision on a request that is still pending. False if it was not."""
+        allowed = {"status", "decided_at", "decided_by", "granted_role",
+                   "granted_department", "decision_reason", "user_id"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"Not a decision column: {sorted(unknown)}")
+        assignments = ", ".join(f"{name} = :{name}" for name in fields)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE access_requests SET {assignments} "
+                "WHERE id = :request_id AND status = 'pending'",
+                {**fields, "request_id": request_id},
+            )
+            return cursor.rowcount == 1
+
+    # -- files -------------------------------------------------------------
+    def insert_file(self, record: dict[str, Any]) -> None:
+        payload = dict(record)
+        payload["quarantine_notes"] = json.dumps(payload.get("quarantine_notes") or [])
+        payload["quarantine_passed"] = int(bool(payload.get("quarantine_passed", True)))
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO files (id, task_id, filename, stored_path, media_type,
+                                   size_bytes, sha256, input_type, classification,
+                                   owner_id, department, quarantine_passed,
+                                   quarantine_notes, uploaded_at)
+                VALUES (:id, :task_id, :filename, :stored_path, :media_type,
+                        :size_bytes, :sha256, :input_type, :classification,
+                        :owner_id, :department, :quarantine_passed,
+                        :quarantine_notes, :uploaded_at)
+                """,
+                payload,
+            )
+
+    def get_file(self, file_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM files WHERE id = ?", (file_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            record = dict(row)
+            record["quarantine_notes"] = json.loads(record["quarantine_notes"])
+            record["quarantine_passed"] = bool(record["quarantine_passed"])
+            return record
+
+    def list_files(self, owner_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        query = "SELECT * FROM files"
+        params: tuple[Any, ...] = ()
+        if owner_id:
+            query += " WHERE owner_id = ?"
+            params = (owner_id,)
+        query += " ORDER BY uploaded_at DESC LIMIT ?"
+        params = params + (limit,)
+        with self.connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        results = []
+        for row in rows:
+            record = dict(row)
+            record["quarantine_notes"] = json.loads(record["quarantine_notes"])
+            record["quarantine_passed"] = bool(record["quarantine_passed"])
+            results.append(record)
+        return results
+
+    def attach_file_to_task(self, file_id: str, task_id: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE files SET task_id = ? WHERE id = ?", (task_id, file_id)
+            )
+
+    # -- tasks -------------------------------------------------------------
+    def insert_task(self, task_id: str, user_id: str, department: str | None,
+                    prompt: str, status: str, payload: dict[str, Any]) -> None:
+        now = _utcnow()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO tasks (id, user_id, department, prompt, status, payload,
+                                   created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, user_id, department, prompt, status,
+                 json.dumps(payload, default=str), now, now),
+            )
+
+    def update_task(self, task_id: str, status: str, payload: dict[str, Any],
+                    completed: bool = False) -> None:
+        now = _utcnow()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE tasks
+                   SET status = ?, payload = ?, updated_at = ?,
+                       completed_at = CASE WHEN ? THEN ? ELSE completed_at END
+                 WHERE id = ?
+                """,
+                (status, json.dumps(payload, default=str), now, int(completed), now, task_id),
+            )
+
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            record = dict(row)
+            record["payload"] = json.loads(record["payload"])
+            return record
+
+    def list_tasks(self, user_id: str | None = None, limit: int = 100,
+                   statuses: list[str] | None = None) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            params.extend(statuses)
+        query = "SELECT * FROM tasks"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self.connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        results = []
+        for row in rows:
+            record = dict(row)
+            record["payload"] = json.loads(record["payload"])
+            results.append(record)
+        return results
+
+    # -- knowledge base ----------------------------------------------------
+    def upsert_document(self, record: dict[str, Any]) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO knowledge_documents
+                    (id, title, source_path, department, classification, version,
+                     sha256, media_type, size_bytes, chunk_count, ingested_at,
+                     document_code, revision_status, effective_date, supersedes, superseded_by)
+                VALUES (:id, :title, :source_path, :department, :classification,
+                        :version, :sha256, :media_type, :size_bytes, :chunk_count,
+                        :ingested_at, :document_code, :revision_status, :effective_date,
+                        :supersedes, :superseded_by)
+                ON CONFLICT(id) DO UPDATE SET
+                    title=excluded.title, source_path=excluded.source_path,
+                    department=excluded.department,
+                    classification=excluded.classification,
+                    version=excluded.version, sha256=excluded.sha256,
+                    media_type=excluded.media_type, size_bytes=excluded.size_bytes,
+                    chunk_count=excluded.chunk_count,
+                    ingested_at=excluded.ingested_at,
+                    document_code=excluded.document_code,
+                    revision_status=excluded.revision_status,
+                    effective_date=excluded.effective_date,
+                    supersedes=excluded.supersedes,
+                    superseded_by=excluded.superseded_by
+                """,
+                {
+                    "document_code": None, "revision_status": "active", "effective_date": None,
+                    "supersedes": None, "superseded_by": None, **record,
+                },
+            )
+
+    def set_revision_status(self, document_id: str, status: str, superseded_by: str | None) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE knowledge_documents SET revision_status = ?, superseded_by = ? WHERE id = ?",
+                (status, superseded_by, document_id),
+            )
+
+    def set_document_code(self, document_id: str, code: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE knowledge_documents SET document_code = ? WHERE id = ?", (code, document_id)
+            )
+
+    def documents_with_code(self, code: str) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM knowledge_documents WHERE document_code = ?", (code,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_document_chunks(self, document_id: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "DELETE FROM knowledge_chunks WHERE document_id = ?", (document_id,)
+            )
+
+    def insert_chunks(self, chunks: list[dict[str, Any]]) -> None:
+        if not chunks:
+            return
+        with self.connect() as connection:
+            connection.executemany(
+                """
+                INSERT INTO knowledge_chunks
+                    (id, document_id, ordinal, location, content, token_estimate,
+                     embedding, embedding_model)
+                VALUES (:id, :document_id, :ordinal, :location, :content,
+                        :token_estimate, :embedding, :embedding_model)
+                """,
+                chunks,
+            )
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM knowledge_documents ORDER BY ingested_at DESC"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_document(self, document_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM knowledge_documents WHERE id = ?", (document_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_document(self, document_id: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "DELETE FROM knowledge_documents WHERE id = ?", (document_id,)
+            )
+
+    def iter_chunks(self, departments: list[str] | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT c.id, c.document_id, c.ordinal, c.location, c.content,
+                   c.embedding, c.embedding_model,
+                   d.title, d.department, d.classification, d.version,
+                   d.ingested_at, d.source_path, d.document_code, d.revision_status,
+                   d.effective_date, d.superseded_by
+              FROM knowledge_chunks c
+              JOIN knowledge_documents d ON d.id = c.document_id
+        """
+        params: list[Any] = []
+        if departments:
+            placeholders = ",".join("?" for _ in departments)
+            query += f" WHERE d.department IN ({placeholders})"
+            params.extend(departments)
+        with self.connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    def count_chunks(self) -> int:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS n FROM knowledge_chunks"
+            ).fetchone()
+            return int(row["n"])
+
+
+_database: Database | None = None
+
+
+def get_database() -> Database:
+    global _database
+    if _database is None:
+        _database = Database()
+    return _database

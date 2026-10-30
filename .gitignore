@@ -1,0 +1,50 @@
+# OS
+.DS_Store
+*/.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+npm-debug.log*
+yarn-error.log*
+
+# Runtime state — regenerated locally, never committed
+storage/uploads/*
+storage/deliverables/*
+storage/workspaces/*
+storage/index/*
+storage/logs/*
+storage/reports/*
+# The host signing key never leaves the host; certificates are per-install.
+storage/keys/*
+storage/proofs/*
+# What the vision model read from each uploaded page: document content.
+storage/vision-cache/*
+storage/*.db
+storage/*.db-wal
+storage/*.db-shm
+!storage/**/.gitkeep
+
+# Local environment
+.env
+.env.local
+
+# Offline installer bundles (scripts/offline_bundle.py build)
+dist/
+
+# Backups (scripts/backup.py): they hold the host's private signing key.
+backups/
+
+# Frontend build output and vendored browser tooling
+frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo

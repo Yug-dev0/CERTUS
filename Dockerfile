@@ -1,0 +1,34 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /workbench
+
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend ./backend
+COPY config ./config
+COPY policies ./policies
+COPY sample_data ./sample_data
+COPY scripts ./scripts
+
+# storage/ is excluded from the build context (see .dockerignore): the image
+# carries empty directories, never a host's key, proofs or database.
+RUN mkdir -p storage/uploads storage/deliverables storage/index storage/logs storage/workspaces \
+    storage/keys storage/proofs storage/reports \
+    && chmod 700 storage/keys
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=20s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"
+
+# --timeout-keep-alive: see scripts/run.sh -- a proxy reusing an idle
+# connection uvicorn has just closed fails as "socket hang up".
+CMD ["uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "75"]

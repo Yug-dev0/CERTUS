@@ -1,0 +1,666 @@
+"""Auth, models, knowledge base, audit, sovereignty and event-stream routes."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import math
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Annotated, Any, AsyncIterator
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from pydantic import BaseModel
+
+from backend.api.dependencies import CurrentUser, OptionalUser, SessionToken, require_permission
+from backend.api.task_service import get_task_service
+from backend.rag.parsing import parse_document
+from backend.security import dlp
+from backend.security.throttle import get_login_throttle
+from backend.core.audit import get_audit_log
+from backend.core.config import get_config
+from backend.core.events import get_event_bus
+from backend.core.identity import (
+    AuthenticationError,
+    RegistrationError,
+    get_identity_service,
+)
+from backend.core.schemas import (
+    AuditChainStatus,
+    AuditEvent,
+    KnowledgeDocument,
+    KnowledgeSearchRequest,
+    KnowledgeSearchResponse,
+    LoginRequest,
+    ModelDescriptor,
+    RegistrationRequest,
+    Sensitivity,
+    Session,
+    SovereigntyStatus,
+    SystemHealth,
+    User,
+)
+from backend.models_layer.manager import get_model_manager
+from backend.models_layer.registry import get_model_registry
+from backend.ops import readiness
+from backend.rag.knowledge_base import get_knowledge_base
+from backend.security.sovereignty import get_sovereignty_monitor
+from backend.tools.sandbox import get_sandbox
+
+router = APIRouter(prefix="/api", tags=["system"])
+
+BOOT_TIME = datetime.now(timezone.utc)
+
+
+@router.get("/status")
+def public_status() -> dict[str, Any]:
+    """Containment status, readable without signing in.
+
+    The sign-in screen states this platform keeps everything on the host. That
+    claim has to be a reading even before anyone authenticates, or it is just
+    a slogan printed on a login page.
+    """
+    monitor = get_sovereignty_monitor()
+    status = monitor.status()
+    return {
+        "name": get_config().settings.app.get("name"),
+        "sovereign": status.sovereign,
+        "external_calls": status.unapproved_connections,
+        "monitor_active": status.monitor_active,
+        "monitored_since": status.monitored_since.isoformat(),
+        "checked_at": status.last_checked.isoformat(),
+    }
+
+
+@router.get("/ready")
+async def ready() -> JSONResponse:
+    """Is this host ready to serve a question? Readable without signing in.
+
+    For a readiness probe and the console banner, so it answers before
+    anyone authenticates -- and so it says only yes or no, per check: no
+    model names, digests, memory figures, paths or usernames. The detail
+    behind each boolean is what scripts/warmup.py prints on the host itself.
+    The readings are backend/ops/readiness.py's, shared with that script,
+    and are reused for readiness.cache_seconds.
+
+    503 when not ready, so a probe needs no body parsing.
+    """
+    report = await readiness.cached_evaluate()
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if report.ready else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=report.public(),
+    )
+
+
+# ------------------------------------------------------------------ identity
+def _set_session_cookie(response: Response, session: Session) -> None:
+    """Attach the browser session used by the EventSource connection."""
+    response.set_cookie(
+        key="workbench_session",
+        value=session.token,
+        max_age=int(get_config().settings.security.get("session_ttl_minutes", 720)) * 60,
+        httponly=True,
+        samesite="strict",
+        secure=False,  # Local HTTP is the supported on-premise default.
+        path="/",
+    )
+
+
+@router.post("/auth/login", response_model=Session)
+def login(payload: LoginRequest, request: Request, response: Response) -> Session:
+    throttle = get_login_throttle()
+    client = request.client.host if request.client else "unknown"
+    wait = throttle.locked_for(payload.username, client)
+    if wait > 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed sign-ins. Try again in {math.ceil(wait)} seconds.",
+            headers={"Retry-After": str(math.ceil(wait))},
+        )
+    try:
+        session = get_identity_service().authenticate(payload.username, payload.password)
+        throttle.succeeded(payload.username, client)
+        # EventSource cannot attach an Authorization header. Keep the browser
+        # session in an HttpOnly same-site cookie as well, so the SSE endpoint
+        # receives the same authenticated identity as the rest of the UI.
+        _set_session_cookie(response, session)
+        return session
+    except AuthenticationError as exc:
+        imposed = throttle.failed(payload.username, client)
+        if imposed:
+            get_audit_log().record(
+                category="auth",
+                action="login_throttled",
+                actor=payload.username[:64],
+                detail={"client": client, "lockout_seconds": imposed},
+            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
+
+
+@router.post("/auth/register", response_model=Session, status_code=status.HTTP_201_CREATED)
+def register(payload: RegistrationRequest, response: Response) -> Session:
+    try:
+        session = get_identity_service().register(
+            username=payload.username,
+            display_name=payload.display_name,
+            password=payload.password,
+            department=payload.department,
+        )
+        _set_session_cookie(response, session)
+        return session
+    except RegistrationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def logout(
+    user: CurrentUser,
+    token: SessionToken,
+) -> Response:
+    get_identity_service().logout(token, user)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response.delete_cookie("workbench_session", path="/")
+    return response
+
+
+@router.get("/auth/me", response_model=User)
+def current_user(user: CurrentUser) -> User:
+    return user
+
+
+class SessionState(BaseModel):
+    authenticated: bool
+    user: User | None = None
+
+
+@router.get("/auth/session", response_model=SessionState)
+def session_state(user: OptionalUser) -> SessionState:
+    """Who is signed in, or that nobody is: a 200 either way.
+
+    The console asks this on every page, because the session may live in an
+    HttpOnly cookie it cannot read. /auth/me answers a signed-out visitor
+    with a 401, which the browser logged as an error on every page, the
+    public one included. A forged or expired token is simply not signed in.
+    """
+    return SessionState(authenticated=user is not None, user=user)
+
+
+@router.get("/auth/directory", response_model=list[User])
+def directory() -> list[User]:
+    """Seeded demo identities, so a reviewer can see which roles exist.
+
+    Unauthenticated by design -- the sign-in screen shows it -- so it lists
+    only the demonstration accounts policy seeds. It returned every account,
+    which told anyone who could reach the port each real user's name, role,
+    department and clearance.
+
+    And only in demo mode. A production host that was once a demo may still
+    hold those rows, and the sign-in screen offers whatever this returns as
+    one-click accounts; outside a demo it returns none, and the screen shows
+    no demo list.
+    """
+    demo = get_config().settings.raw.get("demo") or {}
+    if not bool(demo.get("enabled", False)):
+        return []
+    seeded = {
+        str(seed.get("username"))
+        for seed in get_config().access_control.get("seed_users", [])
+    }
+    return [user for user in get_identity_service().list_users() if user.username in seeded]
+
+
+# -------------------------------------------------------------------- models
+@router.get("/models", response_model=list[ModelDescriptor])
+async def list_models(user: CurrentUser) -> list[ModelDescriptor]:
+    snapshot = await get_model_registry().refresh(force=True)
+    return snapshot.models
+
+
+@router.get("/models/status")
+async def models_status(user: CurrentUser) -> dict[str, Any]:
+    registry = get_model_registry()
+    snapshot = await registry.refresh(force=True)
+    return {
+        "provider": get_config().settings.inference.get("provider"),
+        "base_url": get_config().settings.inference.get("base_url"),
+        "reachable": snapshot.provider_reachable,
+        "registered": len(snapshot.models),
+        "available": len(snapshot.available()),
+        "unregistered_installed": snapshot.unregistered,
+        "residency": get_model_manager().status(),
+        "resident_in_runtime": await get_model_manager().resident_models(),
+        "roles": {
+            role: [
+                model.id
+                for model in snapshot.models
+                if model.role.value == role and model.available
+            ]
+            for role in {model.role.value for model in snapshot.models}
+        },
+    }
+
+
+@router.get("/routing/rules")
+def routing_rules(user: CurrentUser) -> dict[str, Any]:
+    """The live routing policy, so the UI can explain decisions truthfully."""
+    config = get_config()
+    return {
+        "rules": config.routing.get("rules", []),
+        "scoring": config.routing.get("scoring", {}),
+        "stage_roles": config.routing.get("stage_roles", {}),
+    }
+
+
+@router.get("/policies")
+def policies(user: CurrentUser) -> dict[str, Any]:
+    config = get_config()
+    return {
+        "roles": config.access_control.get("roles", {}),
+        # The departments an account can be placed in, so the People screen
+        # offers the policy's list rather than one copied into the interface.
+        "departments": config.access_control.get("departments", []),
+        "tools": config.tool_permissions.get("tools", {}),
+        "hard_denied_actions": config.tool_permissions.get("hard_denied_actions", []),
+        "classification_levels": config.data_classification.get("levels", []),
+        "approval_rules": config.approval_rules.get("approval_required_when", []),
+        "egress": config.data_classification.get("egress", {}),
+    }
+
+
+# ----------------------------------------------------------------- knowledge
+@router.get("/knowledge/documents", response_model=list[KnowledgeDocument])
+def knowledge_documents(user: CurrentUser) -> list[KnowledgeDocument]:
+    """The documents this account could retrieve from, and no others.
+
+    This listed every document to every signed-in role, so an operator saw
+    the title, department and classification of a Restricted design memo it
+    could never open -- search refused the content, and the catalogue
+    announced that it existed and what it was about. Filtered by the same
+    two rules as search: the caller's departments unless theirs is an
+    override role, and nothing above their clearance.
+    """
+    config = get_config()
+    overrides = config.access_control.get("file_access", {}).get("override_roles", [])
+    clearance = config.classification_rank(user.max_data_classification.value)
+    allowed = None if user.role in overrides else {user.department, "general"}
+    return [
+        document
+        for document in get_knowledge_base().list_documents()
+        if (allowed is None or document.department in allowed)
+        and config.classification_rank(document.classification.value) <= clearance
+    ]
+
+
+@router.post("/knowledge/search", response_model=KnowledgeSearchResponse)
+async def knowledge_search(
+    payload: KnowledgeSearchRequest,
+    user: Annotated[User, Depends(require_permission("knowledge.search"))],
+) -> KnowledgeSearchResponse:
+    knowledge_base = get_knowledge_base()
+    config = get_config()
+    overrides = config.access_control.get("file_access", {}).get("override_roles", [])
+
+    # Scope exactly as the agent's own retrieval tool does (tools/registry.py),
+    # because this route reaches the same passages and must not be the way
+    # around the rule the tool enforces.
+    #
+    # It was not. `departments` came from the request body and was used as
+    # given, so any role holding knowledge.search could name another
+    # department and read its chunks; only a request that named nothing was
+    # scoped. And nothing here filtered by clearance at all, so the
+    # Knowledge screen's tester returned restricted and sensitive passages
+    # to roles the agent path would never have shown them to. A caller may
+    # now narrow its scope, never widen it.
+    departments = payload.departments
+    if user.role not in overrides:
+        allowed = {user.department, "general"}
+        departments = (
+            sorted(allowed)
+            if departments is None
+            else [department for department in departments if department in allowed]
+        )
+        if not departments:
+            return KnowledgeSearchResponse(
+                query=payload.query, retrieval_mode="lexical", results=[], took_ms=0
+            )
+
+    results, mode, took_ms = await knowledge_base.search(
+        payload.query,
+        top_k=payload.top_k,
+        departments=departments,
+        max_classification=user.max_data_classification.value,
+        include_history=payload.include_history,
+    )
+    clearance = config.classification_rank(user.max_data_classification.value)
+    permitted = [
+        item
+        for item in results
+        if config.classification_rank(item.classification.value) <= clearance
+    ]
+    return KnowledgeSearchResponse(
+        query=payload.query, retrieval_mode=mode, results=permitted, took_ms=took_ms
+    )
+
+
+@router.post("/knowledge/documents", response_model=KnowledgeDocument, status_code=201)
+async def ingest_document(
+    user: Annotated[User, Depends(require_permission("knowledge.ingest"))],
+    file: UploadFile = File(...),
+    department: str = Form(default="general"),
+    classification: str = Form(default="confidential"),
+    version: str = Form(default="1.0"),
+) -> KnowledgeDocument:
+    settings = get_config().settings
+    staging = settings.path("index") / "staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    target = staging / Path(file.filename or "document").name
+    target.write_bytes(await file.read())
+
+    # Content scanning before anything is indexed (policies/dlp.yaml). A
+    # passage in the index is shown to models for every later question, so
+    # a refusal here is the one that keeps a secret out of all of them.
+    declared = Sensitivity(classification)
+    try:
+        text: str | None = parse_document(target).full_text
+    except Exception:
+        text = None  # ingest_file below reports why the file cannot be read
+    content = dlp.scan(text, "upload").beyond(declared.value) if text else None
+    findings = [finding.record() for finding in content.findings] if content else []
+    if content is not None and content.action == "block":
+        target.unlink(missing_ok=True)
+        blocked = sorted({f.detector for f in content.acting("block")})
+        get_audit_log().record(
+            category="knowledge",
+            action="document_refused",
+            actor=user.username,
+            actor_role=user.role,
+            detail={"filename": target.name, "reason": "content scanning", "dlp": {"findings": findings}},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"'{target.name}' was refused: it contains {', '.join(blocked)}, which "
+            "policies/dlp.yaml does not admit to the knowledge base",
+        )
+    effective = declared
+    floor = content.floor if content is not None else None
+    if floor is not None and get_config().classification_rank(floor) > get_config().classification_rank(declared.value):
+        effective = Sensitivity(floor)
+
+    try:
+        document = await get_knowledge_base().ingest_file(
+            target,
+            department=department,
+            classification=effective,
+            version=version,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    get_audit_log().record(
+        category="knowledge",
+        action="document_ingested",
+        actor=user.username,
+        actor_role=user.role,
+        detail={
+            "document_id": document.id,
+            "title": document.title,
+            "chunks": document.chunk_count,
+            "classification": document.classification.value,
+            "department": document.department,
+            "sha256": document.sha256,
+            "declared_classification": declared.value,
+            "dlp": {"scanned": content is not None, "findings": findings},
+        },
+    )
+    return document
+
+
+@router.delete("/knowledge/documents/{document_id}", status_code=204, response_class=Response)
+def delete_document(
+    document_id: str,
+    user: Annotated[User, Depends(require_permission("knowledge.manage"))],
+) -> Response:
+    if not get_knowledge_base().delete_document(document_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    get_audit_log().record(
+        category="knowledge",
+        action="document_deleted",
+        actor=user.username,
+        actor_role=user.role,
+        detail={"document_id": document_id},
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------- audit
+@router.get("/audit", response_model=list[AuditEvent])
+def audit_events(
+    user: CurrentUser,
+    task_id: str | None = None,
+    category: str | None = None,
+    search: str | None = None,
+    limit: int = 300,
+) -> list[AuditEvent]:
+    permissions = get_config().role_permissions(user.role)
+    audit = get_audit_log()
+    if "audit.read.all" in permissions:
+        return audit.query(task_id=task_id, category=category, search=search, limit=limit)
+    if "audit.read.own" in permissions:
+        return audit.query(
+            task_id=task_id, category=category, search=search, actor=user.username, limit=limit
+        )
+    raise HTTPException(status_code=403, detail="This role cannot read the audit trail")
+
+
+@router.get("/audit/chain", response_model=AuditChainStatus)
+def audit_chain(user: CurrentUser) -> AuditChainStatus:
+    return get_audit_log().verify_chain()
+
+
+@router.get("/audit/export", response_class=PlainTextResponse)
+def audit_export(
+    user: Annotated[User, Depends(require_permission("audit.read.all"))],
+) -> PlainTextResponse:
+    get_audit_log().record(
+        category="audit",
+        action="exported",
+        actor=user.username,
+        actor_role=user.role,
+        detail={"format": "jsonl"},
+    )
+    return PlainTextResponse(
+        get_audit_log().export(),
+        headers={"Content-Disposition": "attachment; filename=audit-trail.jsonl"},
+    )
+
+
+# --------------------------------------------------------------- sovereignty
+@router.get("/sovereignty", response_model=SovereigntyStatus)
+def sovereignty_status(user: CurrentUser) -> SovereigntyStatus:
+    return get_sovereignty_monitor().sample()
+
+
+@router.get("/sovereignty/sandbox-test")
+def sandbox_self_test(user: CurrentUser) -> dict[str, Any]:
+    """Prove both sandbox isolation layers actually block the network."""
+    from backend.api.routes.sandbox import run_self_test
+
+    result = run_self_test()
+    get_audit_log().record(
+        category="security",
+        action="sandbox_self_test",
+        actor=user.username,
+        actor_role=user.role,
+        detail=result,
+    )
+    return result
+
+
+# --------------------------------------------------------------------- health
+@router.get("/health", response_model=SystemHealth)
+async def health(user: CurrentUser) -> SystemHealth:
+    """Report what this host can currently do.
+
+    Four of the readings below are blocking calls, and this is an ``async def``
+    route, so they used to run directly on the event loop:
+
+    * ``knowledge_base.stats()`` queries SQLite.
+    * ``Sandbox.is_ready()`` starts a child interpreter with a 15 second
+      timeout. On the supported platform that is a real subprocess spawn.
+    * ``AuditLog.verify_chain()`` reads and re-hashes the entire audit file,
+      so it gets slower for the life of the deployment.
+    * ``SovereigntyMonitor.status()`` walks the process tree with psutil.
+
+    While any of them ran, the loop could serve nothing else. The interface
+    polls this endpoint, so during a task run the proxy reported
+    ``ECONNRESET`` on /api/health and ``ERR_INCOMPLETE_CHUNKED_ENCODING`` on
+    the event stream — the live view dropped exactly when a run was in
+    progress, which is when it matters. Events are also dropped for a slow
+    subscriber (``backend/core/events.py``), so stalling the loop can cost
+    records, not merely responsiveness.
+
+    Each blocking reading is now taken on a worker thread, and they are taken
+    concurrently rather than one after another.
+    """
+    registry = get_model_registry()
+    knowledge_base = get_knowledge_base()
+    monitor = get_sovereignty_monitor()
+    sandbox = get_sandbox()
+    audit_log = get_audit_log()
+
+    # Not force=True. The registry already caches behind a TTL, and forcing a
+    # refresh here means every health poll makes an HTTP call to the inference
+    # provider — which, during a run, is the one process on the host saturated
+    # with work. Measured on this machine while a task was executing: health
+    # took between 1.6 and 20 seconds and a third of the requests timed out
+    # outright. The cached snapshot is the right answer for an endpoint the
+    # interface polls; /models/status still forces when a human asks for it.
+    snapshot, stats, retrieval_mode, sandbox_ready, chain, sovereignty = (
+        await asyncio.gather(
+            registry.refresh(),
+            asyncio.to_thread(knowledge_base.stats),
+            knowledge_base.retrieval_mode(),
+            asyncio.to_thread(sandbox.is_ready),
+            asyncio.to_thread(audit_log.verify_chain),
+            asyncio.to_thread(monitor.status),
+        )
+    )
+
+    return SystemHealth(
+        inference_provider=str(get_config().settings.inference.get("provider", "ollama")),
+        inference_reachable=snapshot.provider_reachable,
+        models_registered=len(snapshot.models),
+        models_available=len(snapshot.available()),
+        knowledge_documents=stats["documents"],
+        knowledge_chunks=stats["chunks"],
+        retrieval_mode=retrieval_mode,
+        sandbox_runtime=sandbox.runtime,
+        sandbox_ready=sandbox_ready,
+        audit_chain_valid=chain.valid,
+        sovereignty_ok=sovereignty.sovereign,
+        uptime_seconds=(datetime.now(timezone.utc) - BOOT_TIME).total_seconds(),
+        checked_at=datetime.now(timezone.utc),
+    )
+
+
+@router.get("/tools")
+def tools_catalogue(user: CurrentUser) -> list[dict[str, Any]]:
+    from backend.tools.registry import get_tool_registry
+
+    return get_tool_registry().describe()
+
+
+# -------------------------------------------------------------- event stream
+@router.get("/events")
+async def event_stream(user: CurrentUser, task_id: str | None = None) -> StreamingResponse:
+    """Server-Sent Events: agent timeline plus live sovereignty counters.
+
+    EventSource receives the HttpOnly same-site session cookie issued at login.
+    Task events are scoped to the owner unless the caller has ``task.read.all``.
+    Platform-level sovereignty heartbeats carry no task content and remain
+    visible to every authenticated user.
+    """
+    bus = get_event_bus()
+    service = get_task_service()
+    can_read_all = "task.read.all" in get_config().role_permissions(user.role)
+
+    if task_id:
+        requested_task = service.get_task(task_id)
+        if requested_task is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+        if not can_read_all and requested_task.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You may only follow your own runs",
+            )
+
+    # Ownership, remembered per task for the life of this stream.
+    #
+    # This read and parsed the whole task record from SQLite for every event
+    # delivered to a subscriber without task.read.all. While a draft streams
+    # that is about twenty frames a second, so twenty full-record reads a
+    # second per open tab -- and the event bus drops events for a subscriber
+    # that falls behind, which turns a slow ownership check into missing
+    # stage events. A task's owner never changes, so the answer is cached --
+    # both ways, so a foreign task is also asked about only once. A task not
+    # found is NOT cached: an event that outran its row's commit would
+    # otherwise be remembered as "not yours" and hide the whole run from
+    # the person who started it.
+    owners: dict[str, bool] = {}
+
+    def visible(event_task_id: str | None) -> bool:
+        if event_task_id is None or can_read_all:
+            return True
+        known = owners.get(event_task_id)
+        if known is not None:
+            return known
+        task = service.get_task(event_task_id)
+        if task is None:
+            return False
+        owners[event_task_id] = task.user_id == user.id
+        return owners[event_task_id]
+
+    async def generator() -> AsyncIterator[str]:
+        yield ": stream open\n\n"
+        for event in bus.replay(task_id=task_id, limit=50):
+            if visible(event.task_id):
+                yield _sse(event.model_dump(mode="json"))
+        async with bus.subscribe() as queue:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=20.0)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                if task_id and event.task_id and event.task_id != task_id:
+                    continue
+                if not visible(event.task_id):
+                    continue
+                yield _sse(event.model_dump(mode="json"))
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def _sse(payload: dict[str, Any]) -> str:
+    return f"event: {payload.get('event', 'message')}\ndata: {json.dumps(payload, default=str)}\n\n"

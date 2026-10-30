@@ -1,0 +1,1045 @@
+"""Pydantic contracts shared by the API, the agent and the frontend.
+
+These models are the frozen contract described in
+``docs/implementation-architecture.md``. The frontend consumes exactly these
+shapes; no endpoint returns an ad-hoc dictionary.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+# --------------------------------------------------------------------- enums
+class InputType(str, Enum):
+    TEXT = "text"
+    DOCUMENT = "document"
+    PDF = "pdf"
+    SPREADSHEET = "spreadsheet"
+    PRESENTATION = "presentation"
+    IMAGE = "image"
+    SCANNED_PDF = "scanned_pdf"
+    DRAWING = "drawing"
+    PID_DIAGRAM = "pid_diagram"
+    CODE = "code"
+    MULTIMODAL = "multimodal"
+
+
+class TaskType(str, Enum):
+    ANALYSIS = "analysis"
+    CODING = "coding"
+    CALCULATION = "calculation"
+    DOCUMENT_GENERATION = "document_generation"
+    VISION_ANALYSIS = "vision_analysis"
+    SUMMARIZATION = "summarization"
+    QUESTION_ANSWERING = "question_answering"
+    # A greeting, thanks or an acknowledgement: not a task. Answered in one
+    # short model call, without retrieval, claim checks or approval, because
+    # it makes no claims (backend/agents/orchestrator.py, _converse).
+    CONVERSATION = "conversation"
+
+
+class Complexity(str, Enum):
+    SIMPLE = "simple"
+    MULTI_STEP = "multi_step"
+    AGENTIC = "agentic"
+
+
+class Sensitivity(str, Enum):
+    NORMAL = "normal"
+    CONFIDENTIAL = "confidential"
+    SENSITIVE = "sensitive"
+    RESTRICTED = "restricted"
+
+
+class TaskStatus(str, Enum):
+    RECEIVED = "received"
+    CLASSIFIED = "classified"
+    PLANNED = "planned"
+    RETRIEVING = "retrieving"
+    EXECUTING = "executing"
+    VERIFYING = "verifying"
+    AWAITING_APPROVAL = "awaiting_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    # Sent back to its submitter with a reviewer's note: nothing released,
+    # and nothing rejected outright.
+    REVISION_REQUESTED = "revision_requested"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    CANCELLED = "cancelled"
+
+
+class ModelRole(str, Enum):
+    REASONING = "reasoning"
+    CODING = "coding"
+    VISION = "vision"
+    EMBEDDING = "embedding"
+
+
+class PolicyDecision(str, Enum):
+    ALLOW = "allow"
+    DENY = "deny"
+    REQUIRE_APPROVAL = "require_approval"
+
+
+# ------------------------------------------------------------------ identity
+class User(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    role: str
+    department: str
+    active: bool = True
+    permissions: list[str] = Field(default_factory=list)
+    max_data_classification: Sensitivity = Sensitivity.NORMAL
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegistrationRequest(BaseModel):
+    username: str
+    display_name: str
+    password: str
+    department: str = "operations"
+
+
+class Session(BaseModel):
+    token: str
+    user: User
+    issued_at: datetime
+    expires_at: datetime
+
+
+# ---------------------------------------------------------------- accounts
+# Provisioning (backend/core/accounts.py, backend/api/routes/accounts.py).
+# Every one-time code below is returned exactly once, in the response that
+# issued it; the database keeps only its hash.
+class SetupStatus(BaseModel):
+    needs_setup: bool
+
+
+class OwnerSetupRequest(BaseModel):
+    token: str
+    username: str
+    display_name: str
+    password: str
+
+
+class InviteCreateRequest(BaseModel):
+    role: str
+    department: str
+    display_name: str | None = None
+    expires_hours: int = Field(default=72, ge=1, le=24 * 30)
+
+
+class InviteRecord(BaseModel):
+    id: str
+    role: str
+    department: str
+    display_name: str | None = None
+    status: Literal["open", "used", "expired", "revoked"]
+    created_by: str
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None = None
+    used_by: str | None = None
+    revoked_at: datetime | None = None
+    revoked_by: str | None = None
+
+
+class InviteIssued(BaseModel):
+    invite: InviteRecord
+    code: str
+    accept_path: str
+
+
+class InviteAcceptRequest(BaseModel):
+    code: str
+    username: str
+    password: str
+    display_name: str | None = None
+
+
+class AccessRequestCreate(BaseModel):
+    username: str
+    display_name: str
+    requested_role: str
+    reason: str
+    password: str
+
+
+class AccessRequestRecord(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    requested_role: str
+    reason: str
+    status: Literal["pending", "approved", "rejected"]
+    created_at: datetime
+    decided_at: datetime | None = None
+    decided_by: str | None = None
+    granted_role: str | None = None
+    granted_department: str | None = None
+    decision_reason: str | None = None
+
+
+class AccessRequestStatus(BaseModel):
+    """What the requester may see: the state, and a rejection's reason."""
+
+    id: str
+    status: Literal["pending", "approved", "rejected"]
+    created_at: datetime
+    decided_at: datetime | None = None
+    reason: str | None = None
+
+
+class AccessRequestApproval(BaseModel):
+    role: str
+    department: str
+
+
+class AccessRequestRejection(BaseModel):
+    reason: str
+
+
+class AccountRecord(BaseModel):
+    """An account as the administrator's user list shows it."""
+
+    id: str
+    username: str
+    display_name: str
+    role: str
+    department: str
+    active: bool
+    created_at: datetime
+    origin: str | None = None
+    provisioned_by: str | None = None
+    pending_request: bool = False
+
+
+class PasswordResetRequest(BaseModel):
+    expires_hours: int = Field(default=24, ge=1, le=24 * 7)
+
+
+class PasswordResetIssued(BaseModel):
+    user_id: str
+    username: str
+    code: str
+    accept_path: str
+    expires_at: datetime
+
+
+class PasswordResetAccept(BaseModel):
+    code: str
+    password: str
+
+
+class DirectoryStatus(BaseModel):
+    enabled: bool
+    configured: bool
+    url: str | None = None
+    base_dn: str | None = None
+    detail: str
+
+
+# --------------------------------------------------------------------- files
+class StoredFile(BaseModel):
+    id: str
+    task_id: str | None = None
+    filename: str
+    stored_path: str
+    media_type: str
+    size_bytes: int
+    sha256: str
+    input_type: InputType
+    classification: Sensitivity = Sensitivity.NORMAL
+    owner_id: str
+    department: str
+    quarantine_passed: bool = True
+    quarantine_notes: list[str] = Field(default_factory=list)
+    uploaded_at: datetime
+
+
+# ------------------------------------------------------------ classification
+class ClassificationSignal(BaseModel):
+    dimension: str
+    value: str
+    score: float
+    matched: list[str] = Field(default_factory=list)
+
+
+class TaskProfile(BaseModel):
+    """Structured execution profile produced by the industrial task analyzer."""
+
+    input_type: InputType
+    task_type: TaskType
+    complexity: Complexity
+    sensitivity: Sensitivity
+    confidence: float = Field(ge=0.0, le=1.0)
+    step_budget: int
+    requires_retrieval: bool
+    requires_vision: bool
+    requires_code_execution: bool
+    produces_deliverable: bool
+    deliverable_format: str | None = None
+    required_capabilities: list[str] = Field(default_factory=list)
+    signals: list[ClassificationSignal] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
+# -------------------------------------------------------------------- models
+class ModelDescriptor(BaseModel):
+    id: str
+    display_name: str
+    family: str
+    role: ModelRole
+    capabilities: list[str]
+    context_window: int
+    quantization: str | None = None
+    parameters_b: float | None = None
+    approved_classifications: list[Sensitivity]
+    provider: str
+    provider_model: str
+    # A pinned runtime digest makes a registered model an approved artifact,
+    # not merely an approved name. None means the declaration predates the
+    # integrity policy and is surfaced as unpinned rather than silently trusted.
+    expected_digest: str | None = None
+    actual_digest: str | None = None
+    integrity: str = "unpinned"
+    available: bool = False
+    registered: bool = True
+    size_bytes: int | None = None
+    notes: str | None = None
+
+
+class RoutingDecision(BaseModel):
+    requested_role: ModelRole
+    required_capabilities: list[str]
+    selected_model: str | None
+    selected_display_name: str | None = None
+    rule: str
+    reason: str
+    used_fallback: bool = False
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    decided_at: datetime
+    # The pipeline stage this decision served, when routed for one. It was
+    # only ever inside `reason` as prose, so a reopened run could not say
+    # which stage a declined request applied to without parsing a sentence.
+    stage: str | None = None
+    # What the person asked for, and what became of it. All three stay None
+    # when they left the choice to the router. A preference is honoured only
+    # where policy would have allowed that model anyway, so a request is
+    # never a way round an approval, an installation or a capability gate --
+    # and when it is declined, `preference_reason` says which gate declined
+    # it, so the interface can tell them rather than quietly substitute.
+    preferred_model: str | None = None
+    preference_honoured: bool | None = None
+    preference_reason: str | None = None
+
+
+class ModelUsage(BaseModel):
+    """What one model call cost, as measured.
+
+    Every figure here is timed by the orchestrator around the call, reported
+    by the runtime at the end of it, or -- the window and the output budget --
+    exactly what the call was sent with. A figure the runtime did not report
+    stays None. Zero is a count; None is the absence of one, and a total that
+    quietly read a missing count as zero would understate the run it
+    describes.
+    """
+
+    stage: str
+    #: The registry id that served the call, e.g. ``qwen2.5:3b``.
+    model: str
+    display_name: str | None = None
+    #: The digest the runtime reported for that model when it served the
+    #: call. A name can be re-pulled to different weights; this cannot, so
+    #: it is what Proof Mode and run comparison name. None when the runtime
+    #: reported none, and on runs recorded before it was kept.
+    model_digest: str | None = None
+    #: Tokens the runtime reports for the prompt (``prompt_eval_count``).
+    prompt_tokens: int | None = None
+    #: Tokens the runtime reports generating (``eval_count``). Includes any
+    #: reasoning a model produced and the workbench then stripped.
+    output_tokens: int | None = None
+    #: Wall clock around the whole call: queueing, load, prompt and output.
+    latency_ms: int
+    #: ``output_tokens`` over the runtime's own generation time
+    #: (``eval_duration``), so model load and prompt processing are not
+    #: averaged into what reads as generation speed.
+    tokens_per_second: float | None = None
+    #: The context window this call was given (``num_ctx``). Stage budgets
+    #: in config/routing.yaml make it far smaller than the model's declared
+    #: maximum, and a prompt's share of the window it actually ran in is the
+    #: figure that says how close the call came to truncation.
+    context_window: int | None = None
+    #: The output budget this call was given (``num_predict``).
+    output_limit: int | None = None
+    #: Why the runtime stopped: ``stop`` for a finished answer, ``length``
+    #: when the output budget ran out first.
+    done_reason: str | None = None
+    #: Only a streamed call can time its first visible fragment.
+    first_token_ms: int | None = None
+    load_ms: int | None = None
+    prompt_eval_ms: int | None = None
+    eval_ms: int | None = None
+    streamed: bool = False
+    #: Stopped at the operator's request before the runtime finished. The
+    #: runtime reports counts only in its final message, so a stopped call
+    #: carries its wall clock and nothing else.
+    cancelled: bool = False
+    started_at: datetime
+
+
+# ------------------------------------------------------------------ evidence
+class EvidenceItem(BaseModel):
+    """One citable piece of local evidence (reference architecture §8)."""
+
+    id: str
+    source_document: str
+    document_id: str | None = None
+    location: str | None = None
+    page_number: int | None = None
+    excerpt: str
+    extraction_method: str | None = None
+    extraction_model: str | None = None
+    extraction_data: dict[str, Any] | None = None
+    confidence: float | None = None
+    source_sha256: str | None = None
+    score: float | None = None
+    department: str | None = None
+    classification: Sensitivity = Sensitivity.NORMAL
+    version: str | None = None
+    ingested_at: datetime | None = None
+    kind: Literal["knowledge_base", "uploaded_file", "vision_extraction", "computation", "human", "topology",
+                  "historian", "cmms"] = (
+        "knowledge_base"
+    )
+    # For procedure passages: which document this revision belongs to, and
+    # whether it is the one in force.
+    document_code: str | None = None
+    revision_status: str | None = None
+    superseded_by: str | None = None
+
+
+# --------------------------------------------------------------- engineering
+class CalculationInput(BaseModel):
+    """One formula input and the exact place it was read from."""
+
+    name: str
+    # As written in the source ("11.6", "6.0 mm (INS-014 Cl. 3.2)").
+    stated: str | None = None
+    # Normalised: a number in `unit`, an ISO date, text, a list or a flag.
+    value: Any = None
+    unit: str | None = None
+    evidence_id: str | None = None
+    # Where inside that evidence: "readings table · row 'Shell course 2 (mid)' · column 2026".
+    locator: str | None = None
+    source_text: str | None = None
+
+
+class CalculationRecord(BaseModel):
+    """One evaluation of a registered formula, calculated or not.
+
+    `status` is `calculated`, `cannot_calculate` (an input is missing: named
+    in `missing`) or `refused` (an input is malformed, e.g. a pressure where a
+    thickness belongs: stated in `reason`). The hashes make the record
+    reproducible: the same formula version on the same inputs always yields
+    the same `result_hash`.
+    """
+
+    formula_id: str
+    formula_version: int
+    title: str
+    clause: str | None = None
+    expression: str
+    subject: str | None = None
+    status: Literal["calculated", "cannot_calculate", "refused"]
+    inputs: list[CalculationInput] = Field(default_factory=list)
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    display: str | None = None
+    missing: list[str] = Field(default_factory=list)
+    reason: str | None = None
+    formula_hash: str
+    input_hash: str | None = None
+    result_hash: str | None = None
+    # The C evidence item that carries this record in the run's ledger.
+    evidence_id: str | None = None
+
+
+class ConflictCandidate(BaseModel):
+    """One source's version of a disputed value."""
+
+    value: Any = None
+    stated: str | None = None
+    unit: str | None = None
+    evidence_id: str | None = None
+    locator: str | None = None
+    source_document: str | None = None
+    source_text: str | None = None
+
+
+class ConflictResolution(BaseModel):
+    """A named person's decision between conflicting sources."""
+
+    # Index into the conflict's candidates, or None for a value entered by
+    # the resolver (a re-measurement, say), which `stated` then carries.
+    candidate: int | None = None
+    value: Any = None
+    unit: str | None = None
+    stated: str
+    reason: str
+    resolved_by: str
+    resolved_by_name: str
+    resolved_by_role: str
+    resolved_at: datetime
+    # The H evidence item that records the decision in the run's ledger.
+    evidence_id: str
+
+
+class ConflictRecord(BaseModel):
+    """Two sources disagree about something a decision depends on.
+
+    The workbench never chooses between them silently. An `input` conflict
+    over a formula input withholds every figure that depends on it until a
+    person resolves it; a `revision` conflict (a record written against a
+    superseded procedure) is resolved automatically in favour of the revision
+    in force, and says so. A `fact` conflict (two sources state different
+    values for one attribute of one tag or clause, outside the formula
+    inputs) withholds every claim that takes one of the values until a
+    person resolves it.
+    """
+
+    id: str
+    kind: Literal["input", "revision", "fact"]
+    subject: str | None = None
+    field: str
+    label: str
+    impact: Literal["high", "medium"]
+    status: Literal["unresolved", "resolved", "auto_resolved"]
+    candidates: list[ConflictCandidate] = Field(default_factory=list)
+    note: str | None = None
+    resolution: ConflictResolution | None = None
+
+
+class ConflictResolveRequest(BaseModel):
+    candidate: int | None = Field(default=None, ge=0)
+    value: str | None = Field(default=None, max_length=120)
+    reason: str = Field(min_length=8, max_length=1000)
+
+
+class AssessmentCheck(BaseModel):
+    """One clause of a procedure applied to the record, and its verdict."""
+
+    label: str
+    passed: bool
+    detail: str
+    formula_id: str
+
+
+class IntegrityAssessment(BaseModel):
+    """The asset-integrity decision a run's calculations add up to."""
+
+    kind: Literal["vessel", "piping", "stated", "relief"]
+    subject: str
+    # `conflicted`: the evidence disagrees about an input, and no figure that
+    # depends on it is stated until a person resolves the conflict.
+    status: Literal["calculated", "cannot_calculate", "conflicted"]
+    report: str | None = None
+    governing_location: str | None = None
+    governing_rate_mm_yr: float | None = None
+    governing_rate_is: str | None = None
+    remaining_life_years: float | None = None
+    t_min_mm: float | None = None
+    locations_below_t_min: list[str] = Field(default_factory=list)
+    local_metal_loss_percent: float | None = None
+    severity: str | None = None
+    severity_basis: str | None = None
+    required_action: str | None = None
+    approver: str | None = None
+    # SOP-OPS-008 names who recommends a decision and who approves it. The
+    # workbench is neither: it prepares the recommendation for these people.
+    recommended_by: list[str] = Field(default_factory=list)
+    approved_by: list[str] = Field(default_factory=list)
+    # At or below t-min: the equipment is withdrawn (SOP-INS-014 Clause 3.3),
+    # so next_due and interval_months are deliberately empty.
+    withdraw_from_service: bool = False
+    ffs_triggers: list[str] = Field(default_factory=list)
+    # A relief device: the equipment it protects, and each SOP-INS-025
+    # clause applied to its test record (as-received, setting, MAWP, inlet).
+    protected_equipment: str | None = None
+    checks: list[AssessmentCheck] = Field(default_factory=list)
+    next_due: str | None = None
+    interval_months: int | None = None
+    next_due_basis: str | None = None
+    missing: list[str] = Field(default_factory=list)
+    # Unresolved conflicts (ids) that withhold this decision.
+    conflicts: list[str] = Field(default_factory=list)
+    # Every C evidence item this decision rests on, and the source evidence
+    # its inputs were read from.
+    evidence_ids: list[str] = Field(default_factory=list)
+    source_evidence_ids: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------- tools
+class ToolCall(BaseModel):
+    id: str
+    tool: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    ok: bool
+    output_summary: str
+    output: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    started_at: datetime
+    duration_ms: int
+    policy_decision: PolicyDecision = PolicyDecision.ALLOW
+
+
+class SandboxResult(BaseModel):
+    ok: bool
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    duration_ms: int
+    timed_out: bool = False
+    memory_limit_mb: int
+    static_validation_passed: bool
+    static_violations: list[str] = Field(default_factory=list)
+    generated_files: list[str] = Field(default_factory=list)
+    network_attempts_blocked: int = 0
+
+
+# ---------------------------------------------------------------- agent plan
+class PlanStep(BaseModel):
+    id: int
+    action: str
+    objective: str
+    inputs: str | None = None
+    status: Literal["pending", "running", "done", "failed", "skipped"] = "pending"
+    result_summary: str | None = None
+
+
+class AgentPlan(BaseModel):
+    version: int = 1
+    steps: list[PlanStep] = Field(default_factory=list)
+    expected_outputs: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+# -------------------------------------------------------------- verification
+class VerificationCheck(BaseModel):
+    name: str
+    kind: Literal["source", "calculation", "code", "document", "hallucination"]
+    passed: bool
+    detail: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+ClaimVerdictValue = Literal[
+    "SUPPORTED", "CALCULATED", "CONFLICTED", "UNSUPPORTED", "REQUIRES_HUMAN_DECISION"
+]
+
+
+class ClaimVerdict(BaseModel):
+    """One material statement in the answer, and why it stands or does not."""
+
+    id: str
+    text: str
+    kind: Literal["numerical", "engineering", "procedural", "recommendation", "factual"]
+    verdict: ClaimVerdictValue
+    evidence_ids: list[str] = Field(default_factory=list)
+    reason: str
+
+
+class VerificationReport(BaseModel):
+    valid: bool
+    checks: list[VerificationCheck] = Field(default_factory=list)
+    material_claims_total: int = 0
+    material_claims_supported: int = 0
+    # Every material claim with its verdict and the evidence it rests on.
+    claims: list[ClaimVerdict] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    completed_at: datetime
+
+
+# ------------------------------------------------------------------ approval
+class RequiredSignature(BaseModel):
+    """One signature policy demands, in order (approval-rules.yaml `signatures`)."""
+
+    role: str
+    authority: str
+    # SOP-OPS-008 names who recommends and who approves; both sign.
+    capacity: Literal["recommends", "approves"]
+    clause: str | None = None
+    rule: str | None = None
+
+
+class ApprovalSignature(BaseModel):
+    """A signature given: who, in what capacity, against which version."""
+
+    role: str
+    authority: str
+    capacity: Literal["recommends", "approves"]
+    user_id: str
+    username: str
+    name: str
+    comment: str | None = None
+    signed_at: datetime
+    # A signature is for the version read. If the run changes, it is void.
+    review_digest: str
+    # The review digest version it was given under (proof/certificate.py).
+    # Signatures recorded before version 2 load as 1 and are checked under
+    # version 1 rules.
+    digest_version: int = 1
+    # From version 2, what the digest bound, part by part (content, prompt,
+    # evidence, policy, models), so a voiding can say which part changed.
+    binding: dict[str, Any] | None = None
+
+
+class ApprovalRecord(BaseModel):
+    required: bool
+    reasons: list[str] = Field(default_factory=list)
+    approver_roles: list[str] = Field(default_factory=list)
+    decision: Literal["pending", "approved", "rejected", "revision_requested"] | None = None
+    # A High finding needs more than one signature (SOP-OPS-008 Clause 3.5).
+    # Until every one is given the run stays held, and the interface reads
+    # WAITING FOR SECOND AUTHORITY. Empty for a single-approver task.
+    required_signatures: list[RequiredSignature] = Field(default_factory=list)
+    signatures: list[ApprovalSignature] = Field(default_factory=list)
+    reviewer_id: str | None = None
+    reviewer_name: str | None = None
+    comment: str | None = None
+    decided_at: datetime | None = None
+    # The review digest the decision was given against (proof/certificate.py):
+    # the answer, the deliverables' bytes, the calculation results and the
+    # conflict resolutions the reviewer saw, as one hash. From version 2 it
+    # also binds the prompt, the evidence set, the policy files and the
+    # model digests.
+    bound_digest: str | None = None
+    # The version bound_digest was computed under; decisions recorded
+    # before version 2 load as 1 and are checked under version 1 rules.
+    bound_digest_version: int = 1
+    bound_binding: dict[str, Any] | None = None
+    # Why the signatures given so far were last voided, in words that name
+    # what changed ("the model changed since review"), and when.
+    void_reason: str | None = None
+    voided_at: datetime | None = None
+
+
+class ApprovalDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject", "request_revision"]
+    comment: str | None = None
+    # The digest of the version the reviewer read. When given, a decision on
+    # a run that has changed since is refused rather than applied to a
+    # version nobody reviewed.
+    review_digest: str | None = Field(default=None, max_length=64)
+
+
+# --------------------------------------------------------------- deliverable
+class Deliverable(BaseModel):
+    id: str
+    filename: str
+    format: str
+    size_bytes: int
+    sha256: str
+    download_url: str
+    released: bool = False
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------- task
+class TaskCreateRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    file_ids: list[str] = Field(default_factory=list)
+    deliverable_format: str | None = None
+    # A registry id the person would like used. Advisory: the router honours
+    # it per stage only where the model is eligible under the same policy,
+    # and records why wherever it is not.
+    preferred_model: str | None = Field(default=None, max_length=128)
+    # A skill to run: `prompt` is then what was typed after it, and the
+    # skill's template turns it into the request (backend/skills/registry.py).
+    skill_id: str | None = Field(default=None, max_length=32)
+
+
+class SkillInvocation(BaseModel):
+    """Which skill produced a task's request, at which hash, from what input."""
+
+    id: str
+    name: str
+    sha256: str
+    source: str
+    input: str
+
+
+class PolicyEvent(BaseModel):
+    subject: str
+    action: str
+    decision: PolicyDecision
+    reason: str
+    rule: str | None = None
+    at: datetime
+
+
+class StageMark(BaseModel):
+    """One ``task.stage`` announcement, kept on the record with its time.
+
+    The stage events themselves live in a shared 400-event replay buffer, so
+    a run reopened an hour later had no way to say when it planned, retrieved
+    or verified -- only what each model call and tool call cost. Kept here,
+    the stage strip of a settled run is drawn from the same timestamps the
+    live one was, and a stage nobody marked is simply absent.
+    """
+
+    status: str
+    phase: str | None = None
+    message: str = ""
+    skipped: bool = False
+    at: datetime
+
+
+class Task(BaseModel):
+    model_config = ConfigDict(use_enum_values=False)
+
+    id: str
+    prompt: str
+    status: TaskStatus
+    user_id: str
+    user_display_name: str | None = None
+    department: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+
+    files: list[StoredFile] = Field(default_factory=list)
+    profile: TaskProfile | None = None
+    plan: AgentPlan | None = None
+    preferred_model: str | None = None
+    # Set when the request came from a skill: the prompt above is the skill's
+    # rendering, and this is what the person typed and which skill made it.
+    skill: SkillInvocation | None = None
+    # The run this one re-ran (POST /api/runs/{id}/rerun), so the two can be
+    # compared and the new one never passes for an unrelated first attempt.
+    parent_task_id: str | None = None
+    routing: list[RoutingDecision] = Field(default_factory=list)
+    # One record per model call, in the order they ran. Persisted with the
+    # task, so a run reopened later reports what it cost rather than only
+    # what it said.
+    usage: list[ModelUsage] = Field(default_factory=list)
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    # Every stage the orchestrator entered, in order, with the time it did.
+    # Empty on records written before it was kept; a replay shows only what
+    # a record holds and does not reconstruct a missing stage.
+    stage_log: list[StageMark] = Field(default_factory=list)
+    evidence: list[EvidenceItem] = Field(default_factory=list)
+    verification: VerificationReport | None = None
+    approval: ApprovalRecord | None = None
+    deliverables: list[Deliverable] = Field(default_factory=list)
+    # The structured source rendered into the generated deliverable. Keeping it
+    # with the task lets a reader inspect the note in the workbench before
+    # choosing whether to download the file, and lets the same preview survive
+    # a reload. It is not an alternate, unverified answer: the normal answer
+    # and verification report remain the run's authority.
+    deliverable_content: dict[str, Any] | None = None
+    # Deterministic engineering: every registered-formula evaluation this run
+    # made, and the integrity decision they add up to. The model does not
+    # author these figures; it is told them.
+    calculations: list[CalculationRecord] = Field(default_factory=list)
+    assessment: IntegrityAssessment | None = None
+    # Disagreements between sources, and how each was settled.
+    conflicts: list[ConflictRecord] = Field(default_factory=list)
+    # One hash over what a reviewer sees; an approval is bound to it.
+    review_digest: str | None = None
+    # The version review_digest was computed under: 1 on records written
+    # before the digest bound the prompt, evidence, policy and models.
+    review_digest_version: int = 1
+    # What the current digest binds, part by part, with the counts the
+    # review pane shows (proof/certificate.py review_binding).
+    review_binding: dict[str, Any] | None = None
+    # The recent bindings this run has had, newest last, so a decision made
+    # against an earlier one can be told which part changed since.
+    review_history: list[dict[str, Any]] = Field(default_factory=list)
+    # A deterministic answer from a P&ID graph (engineering/pid.py): an
+    # isolation plan, a flow path, what is upstream or downstream.
+    topology: dict[str, Any] | None = None
+    policy_events: list[PolicyEvent] = Field(default_factory=list)
+    answer: str | None = None
+    error: str | None = None
+    duration_ms: int | None = None
+    # Where this task sits in the worker queue, when it has not started yet.
+    queue_position: int | None = None
+    queue_ahead: int = 0
+
+
+class TaskSummary(BaseModel):
+    id: str
+    prompt: str
+    status: TaskStatus
+    task_type: TaskType | None = None
+    sensitivity: Sensitivity | None = None
+    created_at: datetime
+    updated_at: datetime
+    deliverable_count: int = 0
+    approval_required: bool = False
+    user_display_name: str | None = None
+    # The skill the request went through, so a list can show "/clause" and
+    # what was typed rather than the skill's whole rendering.
+    skill: SkillInvocation | None = None
+    parent_task_id: str | None = None
+
+
+# ----------------------------------------------------------------- knowledge
+class KnowledgeDocument(BaseModel):
+    id: str
+    title: str
+    source_path: str
+    department: str
+    classification: Sensitivity
+    version: str
+    chunk_count: int
+    sha256: str
+    ingested_at: datetime
+    media_type: str
+    size_bytes: int
+    # Document identity and revision control: one code, many revisions,
+    # exactly one active.
+    document_code: str | None = None
+    revision_status: Literal["active", "superseded", "withdrawn"] = "active"
+    effective_date: str | None = None
+    supersedes: str | None = None
+    superseded_by: str | None = None
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    top_k: int | None = None
+    departments: list[str] | None = None
+    # Superseded revisions are left out unless history is asked for.
+    include_history: bool = False
+
+
+class KnowledgeSearchResponse(BaseModel):
+    query: str
+    retrieval_mode: Literal["hybrid", "lexical"]
+    results: list[EvidenceItem]
+    took_ms: int
+
+
+# --------------------------------------------------------------------- audit
+class AuditEvent(BaseModel):
+    sequence: int
+    id: str
+    at: datetime
+    actor: str
+    actor_role: str | None = None
+    task_id: str | None = None
+    category: str
+    action: str
+    detail: dict[str, Any] = Field(default_factory=dict)
+    prev_hash: str
+    hash: str
+
+
+class AuditChainStatus(BaseModel):
+    valid: bool
+    events: int
+    broken_at: int | None = None
+    head_hash: str | None = None
+    checked_at: datetime
+
+
+# --------------------------------------------------------------- sovereignty
+class NetworkConnection(BaseModel):
+    laddr: str
+    raddr: str | None
+    status: str
+    pid: int | None
+    process: str | None
+    allowed: bool
+    reason: str
+
+
+class FirewallCounter(BaseModel):
+    packets: int
+    bytes: int
+
+
+class EgressFirewallStatus(BaseModel):
+    """The host egress firewall as read back from the kernel, or why it was not.
+
+    ``state`` is one of ``enforced`` (the table is loaded and its output chain
+    drops by default), ``not_default_deny`` (loaded, but the policy is not
+    drop), ``not_present`` (nft answered and the table is not loaded) or
+    ``not_measurable`` (not Linux, no nft, or nft refused). Every figure is
+    None unless it was read: a host that could not be asked reports no
+    counters, never zero.
+    """
+
+    state: Literal["enforced", "not_default_deny", "not_present", "not_measurable"]
+    measurable: bool
+    present: bool | None = None
+    reason: str | None = None
+    table: str
+    output_policy: str | None = None
+    denied_packets: int | None = None
+    denied_bytes: int | None = None
+    allowed_packets: int | None = None
+    counters: dict[str, FirewallCounter] = Field(default_factory=dict)
+    ruleset_sha256: str | None = None
+    read_at: datetime
+
+
+class SovereigntyStatus(BaseModel):
+    sovereign: bool
+    external_api_calls: int = 0
+    internet_requests: int = 0
+    dns_requests: int = 0
+    unapproved_connections: int = 0
+    local_connections: int = 0
+    monitored_since: datetime
+    last_checked: datetime
+    violations: list[NetworkConnection] = Field(default_factory=list)
+    # False while the monitor is stopped or its last sample produced no
+    # reading; monitor_error then says why.
+    monitor_active: bool = True
+    monitor_error: str | None = None
+    interfaces: dict[str, Any] = Field(default_factory=dict)
+    # The kernel-enforced layer underneath the monitor: the nftables egress
+    # table and its drop counters. None until the first read.
+    firewall: EgressFirewallStatus | None = None
+
+
+# ---------------------------------------------------------------- sse events
+class StreamEvent(BaseModel):
+    event: str
+    task_id: str | None = None
+    at: datetime
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+# -------------------------------------------------------------- system state
+class SystemHealth(BaseModel):
+    api: bool = True
+    inference_provider: str
+    inference_reachable: bool
+    models_registered: int
+    models_available: int
+    knowledge_documents: int
+    knowledge_chunks: int
+    retrieval_mode: Literal["hybrid", "lexical", "unavailable"]
+    sandbox_runtime: str
+    sandbox_ready: bool
+    audit_chain_valid: bool
+    sovereignty_ok: bool
+    uptime_seconds: float
+    checked_at: datetime

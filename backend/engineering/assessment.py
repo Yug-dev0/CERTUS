@@ -1,0 +1,345 @@
+"""Asset-integrity assessments composed from registered formulas.
+
+An assessment is a chain of formula evaluations, each recorded: the years
+between dates, the short- and long-term rates at every location, the higher of
+the two, the remaining life, which location governs, the local metal loss,
+the severity and approving authority, the Fitness-For-Service triggers and
+the next due date. The governing location is the one with the lowest
+remaining life (SOP-INS-014 Clause 4.3), which is not necessarily the thinnest
+reading or the fastest rate, a distinction a language model gets wrong.
+
+Nothing is inferred. When an input is missing the assessment's status is
+``cannot_calculate`` and it names what is missing.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+from backend.core.schemas import AssessmentCheck, CalculationRecord, IntegrityAssessment
+from backend.engineering.extraction import PipingInputs, VesselInputs
+from backend.engineering.formulas import (
+    PIPING_BELOW_T_MIN_ACTION,
+    BoundValue,
+    as_bound,
+    evaluate,
+    output_value,
+)
+from backend.engineering.units import Quantity
+
+
+def _years(
+    records: list[CalculationRecord],
+    direct: BoundValue | None,
+    start: BoundValue | None,
+    end: BoundValue | None,
+    subject: str,
+    label: str,
+) -> BoundValue | None:
+    """Years from dates when both are present, else a stated number of years."""
+    if start is not None and end is not None:
+        record = evaluate("time.years_between", {"start_date": start, "end_date": end}, subject=f"{subject} · {label}")
+        records.append(record)
+        return as_bound(record, "years", "year")
+    return direct
+
+
+def _location_chain(
+    records: list[CalculationRecord],
+    subject: str,
+    location: str,
+    previous: BoundValue | None,
+    current: BoundValue | None,
+    nominal: BoundValue | None,
+    t_min: BoundValue | None,
+    between: BoundValue | None,
+    in_service: BoundValue | None,
+) -> dict[str, Any]:
+    where = f"{subject} · {location}"
+    short = evaluate("corrosion.short_term_rate",
+                     {"t_previous": previous, "t_current": current, "years_between": between}, subject=where)
+    long = evaluate("corrosion.long_term_rate",
+                    {"t_nominal": nominal, "t_current": current, "years_in_service": in_service}, subject=where)
+    governing = evaluate(
+        "corrosion.governing_rate",
+        {"short_term_rate": as_bound(short, "rate", "mm/year"), "long_term_rate": as_bound(long, "rate", "mm/year")},
+        subject=where,
+    )
+    life = evaluate("integrity.remaining_life",
+                    {"t_current": current, "t_min": t_min, "rate": as_bound(governing, "rate", "mm/year")},
+                    subject=where)
+    below = evaluate("integrity.below_t_min", {"t_current": current, "t_min": t_min}, subject=where)
+    records.extend([short, long, governing, life, below])
+    life_value = output_value(life, "remaining_life") if life.status == "calculated" else None
+    return {
+        "location": location,
+        "current": current,
+        "rate": output_value(governing, "rate") if governing.status == "calculated" else None,
+        "rate_is": output_value(governing, "governing") if governing.status == "calculated" else None,
+        "life": life_value,
+        "life_sort": (math.inf if life_value is None else life_value) if life.status == "calculated" else None,
+        "below": bool(output_value(below, "below_t_min")) if below.status == "calculated" else False,
+        "complete": all(r.status == "calculated" for r in (short, long, governing, life, below)),
+        "missing": sorted({m for r in (short, long, governing, life, below) for m in r.missing}),
+        "refused": [r.reason for r in (short, long, governing, life, below) if r.status == "refused"],
+    }
+
+
+def _missing_summary(inputs: VesselInputs | PipingInputs, rows: list[dict[str, Any]]) -> list[str]:
+    missing: list[str] = []
+    if inputs.nominal is None:
+        missing.append("nominal thickness")
+    if inputs.t_min is None:
+        missing.append("t-min")
+    if not inputs.readings:
+        missing.append("thickness readings")
+    for row in rows:
+        for name in row["missing"]:
+            text = {
+                "years_between": "years between inspections (or both inspection dates)",
+                "years_in_service": "years in service (or the in-service date)",
+                "t_previous": "previous thickness readings",
+                "t_current": "current thickness readings",
+            }.get(name, name)
+            if text not in missing and name not in ("rate", "short_term_rate", "long_term_rate"):
+                missing.append(text)
+    missing += _readings_to_confirm(inputs)
+    return missing
+
+
+def _mm(bound: BoundValue | None) -> float | None:
+    if bound is None or not isinstance(bound.value, Quantity):
+        return None
+    try:
+        return bound.value.to("mm")
+    except Exception:
+        return None
+
+
+def _readings_to_confirm(inputs: VesselInputs | PipingInputs) -> list[str]:
+    """Current readings thicker than the wall has ever been: a person confirms them first.
+
+    Corrosion only removes metal. A live vision read of the V-2104 scan gave
+    18.9 mm at a location the report prints as 10.9 mm, on a 12.0 mm wall;
+    the formulas called it "no measurable corrosion", and the location left
+    the comparison without a word. Had the misread been at the governing
+    location, another would have governed. A reading above both its earlier
+    reading and the nominal thickness is not a measurement of that wall, so
+    the decision waits for it. Scatter inside the as-built wall (11.7 then
+    11.8 mm on 12.0 mm) is not questioned.
+    """
+    nominal = _mm(inputs.nominal)
+    if nominal is None:
+        return []
+    notes: list[str] = []
+    for row in inputs.readings:
+        current, previous = _mm(row.current), _mm(row.previous)
+        if current is None or previous is None or not (current > previous and current > nominal):
+            continue
+        notes.append(
+            f"a confirmed current reading at {row.location}: {row.current.stated} is thicker than the earlier "
+            f"{row.previous.stated} and the {inputs.nominal.stated} nominal wall, which corrosion cannot do"
+        )
+    return notes
+
+
+def assess_vessel(inputs: VesselInputs) -> tuple[list[CalculationRecord], IntegrityAssessment]:
+    subject = inputs.tag or "vessel"
+    records: list[CalculationRecord] = []
+    between = _years(records, inputs.years_between, inputs.previous_date, inputs.current_date,
+                     subject, "years between inspections")
+    in_service = _years(records, inputs.years_in_service, inputs.in_service_date, inputs.current_date,
+                        subject, "years in service")
+
+    rows = [
+        _location_chain(records, subject, row.location, row.previous, row.current,
+                        inputs.nominal, inputs.t_min, between, in_service)
+        for row in inputs.readings
+    ]
+    complete = [row for row in rows if row["complete"]]
+    missing = _missing_summary(inputs, rows)
+    assessment = IntegrityAssessment(
+        kind="vessel", subject=subject, status="cannot_calculate", report=inputs.report_no,
+        t_min_mm=inputs.t_min.value.value if inputs.t_min and isinstance(inputs.t_min.value, Quantity) else None,
+        missing=missing, source_evidence_ids=list(inputs.source_evidence_ids),
+    )
+    if not complete or missing:
+        refused = [reason for row in rows for reason in row["refused"] if reason]
+        if refused and not missing:
+            assessment.missing = refused
+        return records, assessment
+
+    governing = min(complete, key=lambda row: row["life_sort"])
+    below = [row["location"] for row in complete if row["below"]]
+    life_bound = (
+        BoundValue(Quantity.of(governing["life"], "year"), stated=f"{governing['life']} years",
+                   locator=f"governing location '{governing['location']}' (lowest remaining life)")
+        if governing["life"] is not None else None
+    )
+
+    loss = evaluate("integrity.local_metal_loss",
+                    {"t_nominal": inputs.nominal, "t_current": governing["current"]},
+                    subject=f"{subject} · {governing['location']}")
+    loss_percent = output_value(loss, "loss_percent") if loss.status == "calculated" else None
+
+    decision = f"{subject} · decision"
+    severity = evaluate(
+        "severity.vessel_finding",
+        {
+            "locations_below_t_min": BoundValue(below, stated=", ".join(below) or "none",
+                                                locator="integrity.below_t_min at every location"),
+            "remaining_life": life_bound,
+            "cladding_damage_percent": inputs.cladding_damage_percent,
+        },
+        subject=decision,
+    )
+    ffs = evaluate(
+        "ffs.triggers",
+        {
+            "locations_below_t_min": BoundValue(below, stated=", ".join(below) or "none",
+                                                locator="integrity.below_t_min at every location"),
+            "remaining_life": life_bound,
+            "local_metal_loss_percent": (BoundValue(loss_percent, stated=f"{loss_percent}%",
+                                                    locator="integrity.local_metal_loss at the governing location")
+                                         if loss_percent is not None else None),
+        },
+        subject=decision,
+    )
+    records.extend([loss, severity, ffs])
+
+    survey = None
+    if inputs.current_date is not None and inputs.service_category is not None:
+        survey = evaluate(
+            "schedule.vessel_thickness_survey",
+            {"inspection_date": inputs.current_date, "service_category": inputs.service_category,
+             "remaining_life": life_bound,
+             "locations_below_t_min": BoundValue(below, stated=", ".join(below) or "none",
+                                                 locator="integrity.below_t_min at every location")},
+            subject=decision,
+        )
+        records.append(survey)
+
+    assessment.status = "calculated"
+    assessment.missing = []
+    assessment.governing_location = governing["location"]
+    assessment.governing_rate_mm_yr = governing["rate"]
+    assessment.governing_rate_is = governing["rate_is"]
+    assessment.remaining_life_years = governing["life"]
+    assessment.locations_below_t_min = below
+    assessment.local_metal_loss_percent = loss_percent
+    if severity.status == "calculated":
+        assessment.severity = output_value(severity, "severity")
+        assessment.severity_basis = output_value(severity, "basis")
+        assessment.required_action = output_value(severity, "required_action")
+        assessment.approver = output_value(severity, "approver")
+        assessment.recommended_by = list(output_value(severity, "recommended_by") or [])
+        assessment.approved_by = list(output_value(severity, "approved_by") or [])
+    if ffs.status == "calculated":
+        assessment.ffs_triggers = list(output_value(ffs, "triggers") or [])
+    if survey is not None and survey.status == "calculated":
+        # Empty when the vessel is withdrawn: the basis then says why, and
+        # what the procedures require instead of a survey date.
+        assessment.withdraw_from_service = bool(output_value(survey, "withdraw_from_service"))
+        assessment.next_due = output_value(survey, "due")
+        assessment.interval_months = output_value(survey, "interval_months")
+        assessment.next_due_basis = survey.display
+    if below:
+        assessment.withdraw_from_service = True
+    _interim_envelope(inputs, assessment, records, decision)
+    return records, assessment
+
+
+INTERIM_APPROVAL = (
+    "interim operation pending the assessment is recommended by the Inspection Engineer and approved by "
+    "the Head of Inspection and the Plant Manager (SOP-INS-021 Clause 6.2; SOP-OPS-008 Clause 2.8)"
+)
+
+
+def _interim_envelope(
+    inputs: VesselInputs, assessment: IntegrityAssessment, records: list[CalculationRecord], decision: str
+) -> None:
+    """SOP-INS-021 Clause 6.1's pressure limit, where it governs the vessel.
+
+    Interim operation is operation of equipment awaiting a Fitness-For-Service
+    assessment (Clause 6.1), so the limit applies when an FFS trigger is met
+    and the vessel is not withdrawn. Below t-min it is withdrawn and interim
+    operation is not permitted at all (same clause), so there is no pressure
+    to judge. The check runs only when the evidence states an operating
+    pressure or an MAWP; with one and not the other it cannot calculate.
+    """
+    if not assessment.ffs_triggers or assessment.withdraw_from_service:
+        return
+    if inputs.operating_pressure is None and inputs.mawp is None:
+        return
+    record = evaluate("envelope.interim_operating_pressure",
+                      {"operating_pressure": inputs.operating_pressure, "mawp": inputs.mawp}, subject=decision)
+    records.append(record)
+    if record.status != "calculated":
+        return
+    within = bool(output_value(record, "within_limit"))
+    assessment.checks.append(AssessmentCheck(
+        label="Interim operating pressure within 90% of MAWP", passed=within,
+        detail=record.display or "", formula_id=record.formula_id,
+    ))
+    if within:
+        return
+    limit_bar = round(float(output_value(record, "limit")) * 10, 4)
+    breach = (
+        f"interim operation pending the Fitness-For-Service assessment is not permitted at the stated operating "
+        f"pressure: it must be reduced to 90% of MAWP ({limit_bar:g} bar) or lower (SOP-INS-021 Clause 6.1); "
+        + INTERIM_APPROVAL
+    )
+    assessment.required_action = f"{assessment.required_action}; {breach}" if assessment.required_action else breach
+
+
+def assess_piping(inputs: PipingInputs) -> tuple[list[CalculationRecord], IntegrityAssessment]:
+    subject = inputs.circuit or "piping circuit"
+    records: list[CalculationRecord] = []
+    between = _years(records, None, inputs.previous_date, inputs.current_date, subject, "years between surveys")
+    in_service = _years(records, None, inputs.in_service_date, inputs.current_date, subject, "years in service")
+    rows = [
+        _location_chain(records, subject, row.location, row.previous, row.current,
+                        inputs.nominal, inputs.t_min, between, in_service)
+        for row in inputs.readings
+    ]
+    complete = [row for row in rows if row["complete"]]
+    missing = _missing_summary(inputs, rows)
+    assessment = IntegrityAssessment(
+        kind="piping", subject=subject, status="cannot_calculate",
+        t_min_mm=inputs.t_min.value.value if inputs.t_min and isinstance(inputs.t_min.value, Quantity) else None,
+        missing=missing, source_evidence_ids=list(inputs.source_evidence_ids),
+    )
+    if not complete or missing:
+        return records, assessment
+    governing = min(complete, key=lambda row: row["life_sort"])
+    below = [row["location"] for row in complete if row["below"]]
+    assessment.status = "calculated"
+    assessment.missing = []
+    assessment.governing_location = governing["location"]
+    assessment.governing_rate_mm_yr = governing["rate"]
+    assessment.governing_rate_is = governing["rate_is"]
+    assessment.remaining_life_years = governing["life"]
+    assessment.locations_below_t_min = below
+    if governing["life"] is not None and inputs.class_max_interval is not None and inputs.current_date is not None:
+        schedule = evaluate(
+            "schedule.piping_next_measurement",
+            {
+                "remaining_life": BoundValue(Quantity.of(governing["life"], "year"), stated=f"{governing['life']} years",
+                                             locator=f"governing CML '{governing['location']}'"),
+                "class_max_interval": inputs.class_max_interval,
+                "survey_date": inputs.current_date,
+            },
+            subject=f"{subject} · decision",
+        )
+        records.append(schedule)
+        if schedule.status == "calculated":
+            assessment.withdraw_from_service = bool(output_value(schedule, "withdraw_from_service"))
+            assessment.next_due = output_value(schedule, "due")
+            assessment.interval_months = output_value(schedule, "interval_months")
+            assessment.next_due_basis = schedule.display
+    if below:
+        assessment.withdraw_from_service = True
+    if assessment.withdraw_from_service:
+        assessment.required_action = PIPING_BELOW_T_MIN_ACTION
+    return records, assessment

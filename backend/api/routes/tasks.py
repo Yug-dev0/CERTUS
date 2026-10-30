@@ -1,0 +1,259 @@
+"""Task, file, approval and deliverable endpoints."""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
+
+from backend.api.dependencies import CurrentUser, require_permission
+from backend.api.task_service import TaskError, get_task_service
+from backend.core.config import get_config
+from backend.core.schemas import (
+    ApprovalDecisionRequest,
+    ConflictResolveRequest,
+    PolicyDecision,
+    StoredFile,
+    Task,
+    TaskCreateRequest,
+    TaskSummary,
+    User,
+)
+from backend.policy.gateway import get_policy_gateway
+
+router = APIRouter(prefix="/api", tags=["tasks"])
+
+
+@router.post("/files", response_model=StoredFile, status_code=status.HTTP_201_CREATED)
+async def upload_file(
+    user: Annotated[User, Depends(require_permission("file.upload"))],
+    file: UploadFile = File(...),
+    classification: str | None = Form(default=None),
+) -> StoredFile:
+    from backend.core.schemas import Sensitivity
+
+    service = get_task_service()
+    payload = await file.read()
+    try:
+        return service.store_upload(
+            user,
+            file.filename or "upload",
+            payload,
+            Sensitivity(classification) if classification else None,
+        )
+    except TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/files", response_model=list[StoredFile])
+def list_files(user: CurrentUser) -> list[StoredFile]:
+    return get_task_service().list_files(user)
+
+
+@router.get("/files/{file_id}/download")
+def download_file(file_id: str, user: CurrentUser) -> FileResponse:
+    service = get_task_service()
+    stored = service.get_file(file_id)
+    if stored is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    decision = get_policy_gateway().check_file_access(user, stored)
+    if decision.decision != PolicyDecision.ALLOW:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=decision.reason)
+    path = Path(stored.stored_path)
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="File is no longer on disk")
+    return FileResponse(path, filename=stored.filename, media_type=stored.media_type)
+
+
+@router.post("/tasks", response_model=Task, status_code=status.HTTP_202_ACCEPTED)
+async def create_task(
+    payload: TaskCreateRequest,
+    user: Annotated[User, Depends(require_permission("task.create"))],
+) -> Task:
+    try:
+        return await get_task_service().create_task(
+            user,
+            payload.prompt,
+            payload.file_ids,
+            payload.deliverable_format,
+            preferred_model=payload.preferred_model,
+            skill_id=payload.skill_id,
+        )
+    except TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/tasks", response_model=list[TaskSummary])
+def list_tasks(user: CurrentUser, limit: int = 50) -> list[TaskSummary]:
+    return get_task_service().list_tasks(user, limit=limit)
+
+
+@router.get("/tasks/{task_id}", response_model=Task)
+def get_task(task_id: str, user: CurrentUser) -> Task:
+    service = get_task_service()
+    task = service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    # A task that has not started should say it is waiting, and for how many.
+    queue = service.queue_state(task_id)
+    task.queue_position = queue.get("position")
+    task.queue_ahead = int(queue.get("ahead") or 0)
+    permissions = get_config().role_permissions(user.role)
+    if task.user_id != user.id and "task.read.all" not in permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You may only read your own runs",
+        )
+    return service.current_view(task)
+
+
+@router.post("/tasks/{task_id}/cancel", response_model=Task)
+async def cancel_task(task_id: str, user: CurrentUser) -> Task:
+    """Stop a task that is queued or running."""
+    try:
+        return await get_task_service().cancel(task_id, user)
+    except TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/approvals", response_model=list[Task])
+def pending_approvals(
+    user: Annotated[User, Depends(require_permission("approval.read"))],
+) -> list[Task]:
+    return get_task_service().pending_approvals(user)
+
+
+@router.post("/tasks/{task_id}/approve", response_model=Task)
+async def decide_approval(
+    task_id: str,
+    payload: ApprovalDecisionRequest,
+    user: Annotated[User, Depends(require_permission("approval.decide"))],
+) -> Task:
+    try:
+        return await get_task_service().decide_approval(
+            task_id, user, payload.decision, payload.comment, payload.review_digest
+        )
+    except TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/tasks/{task_id}/certificate")
+def task_certificate(task_id: str, user: CurrentUser) -> dict:
+    """The run's signed certificate: what it relied on, by hash, under a signed audit root."""
+    service = get_task_service()
+    task = service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    permissions = get_config().role_permissions(user.role)
+    if task.user_id != user.id and "task.read.all" not in permissions:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You may only read your own runs")
+    if task.status.value not in ("delivered", "rejected", "revision_requested", "awaiting_approval"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A certificate is issued for a finished run; this one is {task.status.value}.",
+        )
+    try:
+        return service.certificate(task, user)
+    except TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+@router.post("/tasks/{task_id}/conflicts/{conflict_id}/resolve", response_model=Task)
+async def resolve_conflict(
+    task_id: str,
+    conflict_id: str,
+    payload: ConflictResolveRequest,
+    user: Annotated[User, Depends(require_permission("approval.decide"))],
+) -> Task:
+    """Choose between conflicting sources; the decision is recomputed from the choice."""
+    try:
+        return await get_task_service().resolve_conflict(
+            task_id, conflict_id, user,
+            candidate=payload.candidate, value=payload.value, reason=payload.reason,
+        )
+    except TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/deliverables/{task_id}/{filename}")
+def download_deliverable(task_id: str, filename: str, user: CurrentUser) -> FileResponse:
+    service = get_task_service()
+    task = service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    permissions = get_config().role_permissions(user.role)
+    if task.user_id != user.id and "deliverable.download.all" not in permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not entitled to this deliverable",
+        )
+
+    deliverable = next((item for item in task.deliverables if item.filename == filename), None)
+    if deliverable is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deliverable not found")
+    if not deliverable.released and "approval.decide" not in permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "This deliverable is held for review and not yet released."
+            ),
+        )
+
+    path = get_config().settings.path("deliverables") / task_id / filename
+    confinement = get_policy_gateway().check_path_confinement(path, user=user)
+    if confinement.decision != PolicyDecision.ALLOW:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="That path lies outside the deliverable store and was refused.",
+        )
+    # The record and the file can disagree: storage may have been cleared while
+    # the task row survived. Saying so is more use than "not available", which
+    # reads as a permission problem and sends people to the wrong place.
+    if not path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=(
+                f"'{filename}' is recorded for this run but no longer in "
+                f"deliverable storage. Run it again to regenerate it."
+            ),
+        )
+
+    from backend.core.audit import get_audit_log
+
+    # The bytes served are the bytes recorded, certified and approved. A file
+    # changed on disk after it was generated is refused, and the refusal is
+    # audited, rather than handed out under the approval of another version.
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != deliverable.sha256:
+        get_audit_log().record(
+            category="deliverable",
+            action="integrity_failure",
+            actor=user.username,
+            actor_role=user.role,
+            task_id=task_id,
+            detail={"filename": filename, "recorded_sha256": deliverable.sha256, "actual_sha256": actual},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"'{filename}' has changed since it was generated: it hashes to {actual[:16]}…, "
+                f"not the recorded {deliverable.sha256[:16]}…. It was not served."
+            ),
+        )
+
+    get_audit_log().record(
+        category="deliverable",
+        action="downloaded",
+        actor=user.username,
+        actor_role=user.role,
+        task_id=task_id,
+        detail={"filename": filename, "sha256": deliverable.sha256},
+    )
+    return FileResponse(path, filename=filename, headers={"X-Content-SHA256": actual})

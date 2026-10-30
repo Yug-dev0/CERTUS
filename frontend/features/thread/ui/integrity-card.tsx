@@ -1,0 +1,361 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { Calculator, ChevronDown, CircleSlash } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import type { CalculationRecord, ConflictRecord, IntegrityAssessment } from '@/lib/types'
+import { CITE_CHIP } from './cite-chip'
+
+/**
+ * The asset-integrity decision, as the formula registry computed it.
+ *
+ * Every figure on this card came from a registered, versioned formula applied
+ * to inputs read from the run's evidence, never from the model. Each row names
+ * the C item that carries it, and the fold below shows every formula, every
+ * input with the evidence cell it was read from, and the result hash. When an
+ * input is missing the card says "Cannot calculate" and names it: an absent
+ * figure is shown as absent, not estimated.
+ */
+
+const SEVERITY_TONE: Record<string, string> = {
+  high: 'text-critical-text',
+  medium: 'text-approval-text',
+  low: 'text-sovereign-text',
+}
+
+function fmt(value: unknown, digits = 4): string {
+  if (typeof value === 'number') return String(Number(value.toFixed(digits)))
+  if (Array.isArray(value)) return value.length ? value.join(', ') : 'none'
+  if (typeof value === 'boolean') return value ? 'yes' : 'no'
+  return value == null ? '—' : String(value)
+}
+
+function CiteChip({ id, onCite }: { id: string | null | undefined; onCite: (id: string) => void }) {
+  if (!id) return null
+  return (
+    <button
+      type="button"
+      onClick={() => onCite(id)}
+      // Lime: a C item is recorded evidence, and the chip opens it.
+      className={cn(CITE_CHIP, 'h-5 text-[11px]')}
+      title={`Open ${id}`}
+    >
+      {id}
+    </button>
+  )
+}
+
+function Reading({ label, children, cite, onCite }: {
+  label: string
+  children: React.ReactNode
+  cite?: string | null
+  onCite: (id: string) => void
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="font-mono text-ledger uppercase tracking-[var(--ls-ledger)] text-foreground-muted">{label}</span>
+      <span className="flex min-w-0 flex-wrap items-baseline gap-1.5 text-ui text-foreground">
+        {children}
+        <CiteChip id={cite} onCite={onCite} />
+      </span>
+    </div>
+  )
+}
+
+function Records({ records, onCite }: { records: CalculationRecord[]; onCite: (id: string) => void }) {
+  const groups = useMemo(() => {
+    const bySubject = new Map<string, CalculationRecord[]>()
+    for (const record of records) {
+      const key = record.subject || 'calculation'
+      bySubject.set(key, [...(bySubject.get(key) ?? []), record])
+    }
+    return [...bySubject.entries()].sort(([a], [b]) => Number(a.endsWith('· decision')) - Number(b.endsWith('· decision')))
+  }, [records])
+
+  return (
+    <div className="mt-3 flex flex-col gap-4">
+      {groups.map(([subject, group]) => (
+        <section key={subject} aria-label={subject} className="flex flex-col gap-1.5">
+          <h4 className="flex items-center gap-2 text-ui font-medium text-foreground">
+            {subject}
+            <CiteChip id={group[0]?.evidence_id} onCite={onCite} />
+          </h4>
+          <ol className="flex flex-col gap-2 border-l-2 border-line-default pl-3">
+            {group.map((record, index) => (
+              <li key={`${record.formula_id}-${index}`} className="flex flex-col gap-1">
+                <span className="flex flex-wrap items-baseline gap-x-2 text-meta">
+                  <span className="font-mono text-foreground">{record.formula_id}@{record.formula_version}</span>
+                  <span className="text-foreground-muted">{record.clause}</span>
+                </span>
+                {record.status === 'calculated' ? (
+                  <span className="font-mono text-meta text-foreground-secondary">{record.display}</span>
+                ) : (
+                  <span className="font-mono text-meta text-critical-text">{record.reason}</span>
+                )}
+                {record.inputs.some((input) => input.evidence_id) && (
+                  <ul className="flex flex-col gap-0.5">
+                    {record.inputs.filter((input) => input.evidence_id).map((input) => (
+                      <li key={input.name} className="flex flex-wrap items-baseline gap-1.5 text-[12px] text-foreground-muted">
+                        <span className="font-mono">{input.name}</span>
+                        <span>=</span>
+                        <span className="text-foreground-secondary">{input.stated ?? fmt(input.value)}</span>
+                        <span>from</span>
+                        <CiteChip id={input.evidence_id} onCite={onCite} />
+                        {input.locator && <span className="truncate">{input.locator}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {record.result_hash && (
+                  <span className="font-mono text-[11px] text-foreground-muted" title={record.result_hash}>
+                    result sha256:{record.result_hash.slice(0, 12)}…
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A relief device has no rate or remaining life: its figures are one verdict
+ * per SOP-INS-025 clause, each computed from the test record, then the
+ * decision those verdicts add up to.
+ */
+function ReliefReadings({ assessment, authority, decisionId, onCite }: {
+  assessment: IntegrityAssessment
+  authority: string
+  decisionId: string | null | undefined
+  onCite: (id: string) => void
+}) {
+  const severity = (assessment.severity || '').toLowerCase()
+  return (
+    <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+      {(assessment.checks ?? []).map((check) => (
+        <Reading key={check.label} label={check.label} cite={decisionId} onCite={onCite}>
+          <span className={cn('font-medium', check.passed ? 'text-sovereign-text' : 'text-critical-text')}>
+            {check.passed ? 'passed' : 'failed'}
+          </span>
+          <span className="text-meta text-foreground-muted">{check.detail}</span>
+        </Reading>
+      ))}
+      {assessment.severity && (
+        <Reading label="Severity" cite={decisionId} onCite={onCite}>
+          <span className={cn('font-medium capitalize', SEVERITY_TONE[severity])}>{assessment.severity}</span>
+          {assessment.protected_equipment && (
+            <span className="text-meta text-foreground-muted">on {assessment.protected_equipment}</span>
+          )}
+        </Reading>
+      )}
+      {(authority || assessment.approver) && (
+        <Reading label="Approving authority" cite={decisionId} onCite={onCite}>
+          {assessment.approver}
+          {authority && <span className="text-meta text-foreground-muted">{authority}; CERTUS only prepares it</span>}
+        </Reading>
+      )}
+      <Reading label="Next bench test" cite={decisionId} onCite={onCite}>
+        {assessment.withdraw_from_service ? (
+          <>
+            <span className="font-medium text-critical-text">failed relief device</span>
+            <span className="text-meta text-foreground-muted">the protected equipment is withdrawn</span>
+          </>
+        ) : assessment.next_due ? (
+          <>
+            <span className="tabular font-medium">{assessment.next_due}</span>
+            <span className="text-meta text-foreground-muted">{assessment.interval_months} months</span>
+          </>
+        ) : (
+          <span className="text-foreground-muted">not calculable from the record</span>
+        )}
+      </Reading>
+      {(assessment.severity_basis || assessment.required_action) && (
+        <p className="text-meta text-foreground-secondary sm:col-span-2 lg:col-span-3">
+          {assessment.severity_basis && (
+            <>
+              <span className="font-medium text-foreground">Basis.</span> {assessment.severity_basis}.{' '}
+            </>
+          )}
+          {assessment.required_action && (
+            <>
+              <span className={cn('font-medium', assessment.withdraw_from_service ? 'text-critical-text' : 'text-foreground')}>
+                Required action.
+              </span>{' '}
+              {assessment.required_action}.
+            </>
+          )}
+        </p>
+      )}
+    </div>
+  )
+}
+
+export function IntegrityCard({
+  assessment,
+  records,
+  conflicts = [],
+  onCite,
+}: {
+  assessment: IntegrityAssessment
+  records: CalculationRecord[]
+  conflicts?: ConflictRecord[]
+  onCite: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const calculated = records.filter((record) => record.status === 'calculated').length
+  const stated = assessment.kind === 'stated'
+  const relief = assessment.kind === 'relief'
+  // A stated question has no location; its figures sit on the one C item.
+  const governingId = records.find(
+    (record) => record.subject === `${assessment.subject} · ${assessment.governing_location}`,
+  )?.evidence_id ?? (stated ? records.find((r) => r.formula_id === 'integrity.remaining_life')?.evidence_id : undefined)
+  const life = assessment.remaining_life_years
+  const authority = [
+    assessment.recommended_by?.length ? `recommended by ${assessment.recommended_by.join(' and ')}` : null,
+    assessment.approved_by?.length ? `approved by ${assessment.approved_by.join(' and ')}` : null,
+  ].filter(Boolean).join(', ')
+  const decisionId = records.find((record) => (record.subject || '').endsWith('· decision'))?.evidence_id
+  const severity = (assessment.severity || '').toLowerCase()
+  const cannot = assessment.status !== 'calculated'
+  const withheld = assessment.status === 'conflicted'
+  const disputed = conflicts.filter((c) => (assessment.conflicts ?? []).includes(c.id))
+
+  return (
+    <section
+      aria-label={`Integrity decision for ${assessment.subject}`}
+      className={cn('grouped flex flex-col gap-3 px-4 py-3', cannot ? 'wash-critical' : severity === 'high' ? 'wash-critical' : severity === 'medium' ? 'wash-approval' : '')}
+    >
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-2">
+          {cannot ? (
+            <CircleSlash className="h-4 w-4 text-critical" aria-hidden />
+          ) : (
+            <Calculator className="h-4 w-4 text-foreground-secondary" aria-hidden />
+          )}
+          <span className="text-ui font-medium text-foreground">
+            {withheld ? 'Decision withheld' : cannot ? 'Cannot calculate' : relief ? 'Relief device decision' : 'Integrity decision'} ·{' '}
+            {assessment.subject}
+            {relief && assessment.protected_equipment ? ` on ${assessment.protected_equipment}` : ''}
+          </span>
+        </span>
+        <span className="font-mono text-meta text-foreground-muted">
+          {calculated} figure{calculated === 1 ? '' : 's'} by registered formulas · not by the model
+        </span>
+      </header>
+
+      {withheld ? (
+        <p className="text-ui text-foreground">
+          The sources disagree about{' '}
+          <span className="font-medium">
+            {disputed.length ? disputed.map((c) => `${c.label} (${c.id})`).join(', ') : (assessment.conflicts ?? []).join(', ')}
+          </span>
+          . No {relief ? 'clause verdict, severity or bench-test date' : 'rate, remaining life, severity or due date'} is
+          computed until a reviewer chooses the value; the formulas then recompute from that choice.
+        </p>
+      ) : cannot ? (
+        <p className="text-ui text-foreground">
+          The evidence is missing <span className="font-medium">{assessment.missing.join(', ') || 'required inputs'}</span>.
+          No figure is estimated in its place.
+        </p>
+      ) : relief ? (
+        <ReliefReadings assessment={assessment} authority={authority} decisionId={decisionId} onCite={onCite} />
+      ) : (
+        <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+          {stated ? (
+            <Reading label="Inputs" cite={assessment.source_evidence_ids?.[0]} onCite={onCite}>
+              stated in the request
+            </Reading>
+          ) : (
+            <Reading label="Governing location" cite={governingId} onCite={onCite}>
+              {assessment.governing_location}
+            </Reading>
+          )}
+          <Reading label="Corrosion rate" cite={governingId} onCite={onCite}>
+            <span className="tabular font-medium">{fmt(assessment.governing_rate_mm_yr)} mm/year</span>
+            <span className="text-meta text-foreground-muted">
+              {stated ? 'from the stated readings' : `${assessment.governing_rate_is} governs`}
+            </span>
+          </Reading>
+          <Reading label="Remaining life" cite={governingId} onCite={onCite}>
+            <span className={cn('tabular font-medium', life != null && life <= 0 && 'text-critical-text')}>
+              {life == null ? 'not limited by corrosion' : `${fmt(life, 2)} years`}
+            </span>
+            {/* A negative life is how far past t-min it already is, not time left to run. */}
+            {life != null && life <= 0 && <span className="text-meta text-foreground-muted">at or below t-min now</span>}
+          </Reading>
+          {assessment.severity && (
+            <Reading label="Severity" cite={decisionId} onCite={onCite}>
+              <span className={cn('font-medium capitalize', SEVERITY_TONE[severity])}>{assessment.severity}</span>
+            </Reading>
+          )}
+          {(authority || assessment.approver) && (
+            <Reading label="Approving authority" cite={decisionId} onCite={onCite}>
+              {assessment.approver}
+              {authority && <span className="text-meta text-foreground-muted">{authority}; CERTUS only prepares it</span>}
+            </Reading>
+          )}
+          {!stated && (
+            <Reading label={assessment.kind === 'vessel' ? 'Next thickness survey' : 'Next measurement'} cite={decisionId} onCite={onCite}>
+              {assessment.withdraw_from_service ? (
+                <>
+                  <span className="font-medium text-critical-text">withdrawn from service</span>
+                  <span className="text-meta text-foreground-muted">no routine interval applies</span>
+                </>
+              ) : assessment.next_due ? (
+                <>
+                  <span className="tabular font-medium">{assessment.next_due}</span>
+                  <span className="text-meta text-foreground-muted">{assessment.interval_months} months</span>
+                </>
+              ) : (
+                <span className="text-foreground-muted">not calculable from the evidence</span>
+              )}
+            </Reading>
+          )}
+          {/* Clause checks beyond thickness, e.g. SOP-INS-021 Clause 6.1's interim pressure limit. */}
+          {(assessment.checks ?? []).map((check) => (
+            <Reading key={check.label} label={check.label} cite={decisionId} onCite={onCite}>
+              <span className={cn('font-medium', check.passed ? 'text-sovereign-text' : 'text-critical-text')}>
+                {check.passed ? 'passed' : 'failed'}
+              </span>
+              <span className="text-meta text-foreground-muted">{check.detail}</span>
+            </Reading>
+          ))}
+          {assessment.severity_basis && (
+            <p className="text-meta text-foreground-secondary sm:col-span-2 lg:col-span-3">
+              <span className="font-medium text-foreground">Basis.</span> {assessment.severity_basis}.{' '}
+              {assessment.required_action && <>Required action: {assessment.required_action}.</>}
+            </p>
+          )}
+          {!stated && (
+          <p className="text-meta text-foreground-secondary sm:col-span-2 lg:col-span-3">
+            <span className="font-medium text-foreground">Fitness-For-Service.</span>{' '}
+            {assessment.ffs_triggers.length
+              ? assessment.ffs_triggers.join('; ')
+              : assessment.local_metal_loss_percent != null
+                ? `No trigger applies (local metal loss ${fmt(assessment.local_metal_loss_percent, 1)}% of nominal, under the 25% trigger).`
+                : 'No trigger applies.'}
+          </p>
+          )}
+          {assessment.withdraw_from_service && assessment.next_due_basis && (
+            <p className="text-meta text-foreground-secondary sm:col-span-2 lg:col-span-3">
+              <span className="font-medium text-critical-text">Immediate action.</span> {assessment.next_due_basis}
+            </p>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="hover-decay flex items-center gap-1.5 self-start text-meta text-foreground-secondary hover:text-foreground focus-visible:shadow-[var(--focus-ring-on-paper)] focus-visible:outline-none"
+      >
+        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} aria-hidden />
+        {open ? 'Hide' : 'Show'} every formula, input and hash
+      </button>
+      {open && <Records records={records} onCite={onCite} />}
+    </section>
+  )
+}

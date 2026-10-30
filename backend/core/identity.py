@@ -1,0 +1,318 @@
+"""Identity, authentication and session management.
+
+Roles, permissions, departments and seed identities all come from
+``policies/access-control.yaml``. Passwords are salted and hashed with PBKDF2
+(standard library only — no external crypto dependency to vendor into an
+air-gapped deployment).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import os
+import re
+import secrets
+import sqlite3
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from backend.core.audit import get_audit_log
+from backend.core.config import get_config
+from backend.core.database import get_database
+from backend.core.schemas import Sensitivity, Session, User
+
+PBKDF2_ALGORITHM = "sha256"
+SALT_BYTES = 16
+USERNAME_PATTERN = re.compile(
+    r"^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$|^[a-z][a-z0-9_.-]{2,63}$"
+)
+
+
+class AuthenticationError(RuntimeError):
+    """Raised when credentials are rejected or a session is invalid."""
+
+
+class RegistrationError(RuntimeError):
+    """Raised when a self-service account request does not satisfy policy."""
+
+
+def hash_password(password: str, *, rounds: int | None = None) -> str:
+    config = get_config()
+    iterations = int(rounds or config.settings.security.get("password_hash_rounds", 12)) * 10_000
+    salt = os.urandom(SALT_BYTES)
+    derived = hashlib.pbkdf2_hmac(PBKDF2_ALGORITHM, password.encode("utf-8"), salt, iterations)
+    return f"pbkdf2_{PBKDF2_ALGORITHM}${iterations}${salt.hex()}${derived.hex()}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        scheme, iterations_raw, salt_hex, digest_hex = encoded.split("$")
+        if not scheme.startswith("pbkdf2_"):
+            return False
+        algorithm = scheme.split("_", 1)[1]
+        derived = hashlib.pbkdf2_hmac(
+            algorithm,
+            password.encode("utf-8"),
+            bytes.fromhex(salt_hex),
+            int(iterations_raw),
+        )
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(derived.hex(), digest_hex)
+
+
+def hash_session_token(token: str) -> str:
+    """Return the database lookup value for an opaque bearer token.
+
+    This is intentionally a fast hash rather than password hashing: the token
+    has 256 bits of entropy and must be looked up for every request. A database
+    copy cannot be replayed as an Authorization header, which is the property
+    we need here.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+class IdentityService:
+    """User store plus session issuance, backed by config-declared roles."""
+
+    def __init__(self) -> None:
+        self.config = get_config()
+        self.db = get_database()
+        self.audit = get_audit_log()
+
+    # -- provisioning ------------------------------------------------------
+    def _restore_retired_seeds(self) -> list[str]:
+        """Bring back the demo accounts a production start retired, now the demo is on again.
+
+        Starting with the demo off deactivates every declared demo account
+        that still accepts the shared password (accounts.retire_demo_accounts).
+        Those are exactly the inactive seed rows that still accept it, so the
+        demo, switched back on, gets its accounts back rather than keeping
+        them locked out for good. One given its own password stays as it is.
+        """
+        shared = str(self.config.settings.security.get("seed_user_password") or "")
+        if not shared:
+            return []
+        restored: list[str] = []
+        for seed in self.config.access_control.get("seed_users", []):
+            record = self.db.get_user_by_username(seed["username"])
+            if record is not None and not bool(record["active"]) and verify_password(shared, record["password_hash"]):
+                self.db.update_user(record["id"], active=1)
+                restored.append(seed["username"])
+        if restored:
+            self.audit.record(
+                category="identity", action="seed_users_restored", actor="system",
+                detail={"usernames": restored, "reason": "demo mode is on"},
+            )
+        return restored
+
+    def ensure_seed_users(self) -> list[str]:
+        """Create each identity declared in access-control.yaml, once.
+
+        Per identity rather than only on an empty table: an install seeded
+        before the Head of Inspection and Plant Manager were declared would
+        otherwise never gain them, and a High finding it holds for their two
+        signatures could never be released.
+
+        These are demonstration accounts with a shared password, so startup
+        creates them only while ``demo.enabled`` is true (``api/main.py``). A
+        production host starts with none and is claimed through the owner
+        setup in ``accounts.py``.
+        """
+        self._restore_retired_seeds()
+        pending = [
+            seed for seed in self.config.access_control.get("seed_users", [])
+            if self.db.get_user_by_username(seed["username"]) is None
+        ]
+        if not pending:
+            return []
+        password = str(self.config.settings.security.get("seed_user_password") or "")
+        if not password:
+            password = secrets.token_urlsafe(12)
+        created: list[str] = []
+        for seed in pending:
+            record = {
+                "id": str(uuid.uuid4()),
+                "username": seed["username"],
+                "display_name": seed["display_name"],
+                "role": seed["role"],
+                "department": seed["department"],
+                "password_hash": hash_password(password),
+                "active": 1,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "origin": "seed",
+            }
+            self.db.insert_user(record)
+            created.append(seed["username"])
+        if created:
+            self.audit.record(
+                category="identity",
+                action="seed_users_created",
+                actor="system",
+                detail={"usernames": created, "source": "policies/access-control.yaml"},
+            )
+        return created
+
+    # -- lookups -----------------------------------------------------------
+    def _to_user(self, record: dict) -> User:
+        role = record["role"]
+        return User(
+            id=record["id"],
+            username=record["username"],
+            display_name=record["display_name"],
+            role=role,
+            department=record["department"],
+            active=bool(record["active"]),
+            permissions=sorted(self.config.role_permissions(role)),
+            max_data_classification=Sensitivity(self.config.role_max_classification(role)),
+        )
+
+    def get_user(self, user_id: str) -> User | None:
+        record = self.db.get_user(user_id)
+        return self._to_user(record) if record else None
+
+    def list_users(self) -> list[User]:
+        return [self._to_user(record) for record in self.db.list_users()]
+
+    def register(
+        self,
+        *,
+        username: str,
+        display_name: str,
+        password: str,
+        department: str = "operations",
+    ) -> Session:
+        """Create a local operator account and immediately issue its session.
+
+        Public registration intentionally cannot select a privileged role. Role
+        elevation is a separate administrator-governed policy action.
+        """
+        security = self.config.settings.security
+        if not bool(security.get("self_registration_enabled", False)):
+            raise RegistrationError("Self-service registration is disabled on this host")
+
+        normalized_username = username.strip().lower()
+        normalized_display_name = " ".join(display_name.split())
+        permitted_departments = {
+            str(item.get("id"))
+            for item in self.config.access_control.get("departments", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        default_department = str(
+            security.get("self_registration_default_department", "operations")
+        )
+        requested_department = department.strip().lower() or default_department
+        role = str(security.get("self_registration_default_role", "operator"))
+
+        if not USERNAME_PATTERN.fullmatch(normalized_username):
+            raise RegistrationError(
+                "Username must be a valid email address or 3–64 characters (lowercase letters, numbers, hyphens, dots or underscores)"
+            )
+        if not (2 <= len(normalized_display_name) <= 80):
+            raise RegistrationError("Display name must be between 2 and 80 characters")
+        if len(password) < 8:
+            raise RegistrationError("Password must contain at least 8 characters")
+        if role not in self.config.access_control.get("roles", {}):
+            raise RegistrationError("Self-registration role is not defined in access policy")
+        if requested_department not in permitted_departments:
+            raise RegistrationError("Selected department is not defined in access policy")
+        if self.db.get_user_by_username(normalized_username) is not None:
+            raise RegistrationError("That username is already in use")
+
+        record = {
+            "id": str(uuid.uuid4()),
+            "username": normalized_username,
+            "display_name": normalized_display_name,
+            "role": role,
+            "department": requested_department,
+            "password_hash": hash_password(password),
+            "active": 1,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "origin": "register",
+        }
+        try:
+            self.db.insert_user(record)
+        except sqlite3.IntegrityError as exc:
+            raise RegistrationError("That username is already in use") from exc
+
+        self.audit.record(
+            category="identity",
+            action="self_registered",
+            actor=normalized_username,
+            actor_role=role,
+            detail={"department": requested_department, "role": role},
+        )
+        return self.authenticate(normalized_username, password)
+
+    # -- authentication ----------------------------------------------------
+    def authenticate(self, username: str, password: str) -> Session:
+        record = self.db.get_user_by_username(username)
+        if record is None or not bool(record["active"]):
+            self.audit.record(
+                category="security",
+                action="login_failed",
+                actor=username,
+                detail={"reason": "unknown_or_inactive_user"},
+            )
+            raise AuthenticationError("Invalid username or password")
+        if not verify_password(password, record["password_hash"]):
+            self.audit.record(
+                category="security",
+                action="login_failed",
+                actor=username,
+                actor_role=record["role"],
+                detail={"reason": "bad_password"},
+            )
+            raise AuthenticationError("Invalid username or password")
+
+        ttl_minutes = int(self.config.settings.security.get("session_ttl_minutes", 720))
+        issued_at = datetime.now(timezone.utc)
+        expires_at = issued_at + timedelta(minutes=ttl_minutes)
+        token = secrets.token_urlsafe(32)
+        self.db.create_session(
+            hash_session_token(token), record["id"], issued_at.isoformat(), expires_at.isoformat()
+        )
+        user = self._to_user(record)
+        self.audit.record(
+            category="security",
+            action="login_succeeded",
+            actor=user.username,
+            actor_role=user.role,
+            detail={"department": user.department},
+        )
+        return Session(token=token, user=user, issued_at=issued_at, expires_at=expires_at)
+
+    def resolve_session(self, token: str) -> User:
+        token_hash = hash_session_token(token)
+        record = self.db.get_session(token_hash)
+        if record is None:
+            raise AuthenticationError("Session not found")
+        expires_at = datetime.fromisoformat(record["expires_at"])
+        if expires_at < datetime.now(timezone.utc):
+            self.db.delete_session(token_hash)
+            raise AuthenticationError("Session expired")
+        user_record = self.db.get_user(record["user_id"])
+        if user_record is None or not bool(user_record["active"]):
+            raise AuthenticationError("User is no longer active")
+        return self._to_user(user_record)
+
+    def logout(self, token: str, user: User | None = None) -> None:
+        self.db.delete_session(hash_session_token(token))
+        if user is not None:
+            self.audit.record(
+                category="security",
+                action="logout",
+                actor=user.username,
+                actor_role=user.role,
+            )
+
+
+_identity: IdentityService | None = None
+
+
+def get_identity_service() -> IdentityService:
+    global _identity
+    if _identity is None:
+        _identity = IdentityService()
+    return _identity

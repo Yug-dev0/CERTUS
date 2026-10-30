@@ -1,0 +1,106 @@
+import type { Metadata, Viewport } from 'next'
+import { GeistSans } from 'geist/font/sans'
+import { GeistMono } from 'geist/font/mono'
+import localFont from 'next/font/local'
+import './globals.css'
+import { AppProviders } from '@/components/app-providers'
+
+/*
+  Hi-Vis Monochrome type: Archivo (variable weight and width, so display
+  sizes can run semi-condensed and light) and Martian Mono for labels, ids
+  and hashes. Both SIL OFL, bundled in app/fonts, so the air-gapped build
+  fetches nothing: next/font/google downloads at build time, and on a host
+  that could not reach Google the faces silently fell back to system fonts.
+
+  Geist Sans and Geist Mono (the `geist` package, loaded through
+  next/font/local) stay as the fallback faces behind them in globals.css.
+  Instrument Serif sets the one italic word on the empty thread.
+*/
+const archivo = localFont({
+  src: './fonts/archivo-variable.woff2',
+  weight: '100 900',
+  // The width axis has to be declared on the @font-face, or font-stretch
+  // selects nothing and the semi-condensed display stays at normal width.
+  declarations: [{ prop: 'font-stretch', value: '62% 125%' }],
+  variable: '--font-archivo',
+  display: 'swap',
+})
+
+const martian = localFont({
+  src: './fonts/martian-mono-variable.woff2',
+  weight: '100 800',
+  variable: '--font-martian',
+  display: 'swap',
+})
+
+const instrument = localFont({
+  src: [
+    { path: './fonts/instrument-serif-regular.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/instrument-serif-italic.woff2', weight: '400', style: 'italic' },
+  ],
+  variable: '--font-instrument',
+  display: 'swap',
+})
+
+/*
+  The theme is applied before first paint, so a reader who chose ink night
+  never sees a flash of paper. A saved choice wins; otherwise night, which is
+  the Hi-Vis Monochrome ground (paper stays one click away). data-js marks the page
+  as scripted, which is what lets the public page's reveal start hidden: with
+  no JavaScript, nothing is ever hidden.
+*/
+const THEME_BOOT =
+  "(function(){document.documentElement.dataset.js='1';try{var t=localStorage.getItem('certus-theme');if(t!=='dark'&&t!=='light')t='dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}})();"
+
+// The description states the mechanism, not an absolute. "Never leave the
+// host" was a guarantee this page could not show; what the product does show
+// is that every answer is cited, checked and recorded on this machine. The
+// public page at / sets its own title and description in its layout.
+export const metadata: Metadata = {
+  title: 'Certus — On-Premise Agentic AI Workbench',
+  description:
+    'A self-hosted agentic AI workbench for regulated industrial work. Models, retrieval, the sandbox and the audit log run on this host; every answer is cited, checked against policy and recorded.',
+  applicationName: 'CERTUS',
+  authors: [{ name: 'Yug Patel', url: 'mailto:yug.dev04@gmail.com' }],
+  creator: 'Yug Patel',
+}
+
+export const viewport: Viewport = {
+  // Both follow the palette. themeColor is what a mobile browser paints its
+  // chrome with, so it tracks the theme the operating system asks for.
+  colorScheme: 'light dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#faf9f6' },
+    { media: '(prefers-color-scheme: dark)', color: '#070707' },
+  ],
+  width: 'device-width',
+  initialScale: 1,
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html
+      lang="en"
+      // globals.css sets scroll-behavior: smooth for the landing page's
+      // anchors. Next 16 stopped suspending that during route changes on
+      // its own, so without this a navigation from a scrolled screen would
+      // visibly glide to the top of the next one. This attribute is Next's
+      // opt-in to suspend it for navigations and keep it for anchors.
+      data-scroll-behavior="smooth"
+      className={`${GeistSans.variable} ${GeistMono.variable} ${instrument.variable} ${archivo.variable} ${martian.variable} bg-background`}
+      // The boot script sets data-theme before React hydrates.
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      </head>
+      <body className="font-sans antialiased">
+        <AppProviders>{children}</AppProviders>
+      </body>
+    </html>
+  )
+}
