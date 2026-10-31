@@ -9,7 +9,7 @@ lives and how to see it working. What is not built yet is in
 
 | | |
 |---|---|
-| Engineering formulas | **23**, versioned and clause-cited (vessel shells & heads, piping, relief devices, severity, FFS triggers, re-rating and interim operation, schedules) |
+| Engineering formulas | **29**, versioned and clause-cited (vessel shells & heads, piping, relief devices, severity, FFS triggers, re-rating and interim operation, schedules) |
 | API | **87** operations on 81 paths, local only |
 | Console screens | **12** signed-in screens, plus the public page, sign-in, owner setup, invitation, password reset and access request |
 | Agent tools | **7**: `knowledge_search`, `file_read`, `spreadsheet_analyze`, `python_exec`, `document_generate`, `historian_read`, `cmms_read` |
@@ -51,7 +51,7 @@ The model is told the figures. It is never asked for them.
 
 | Capability | What it does | Where | See it |
 |---|---|---|---|
-| Formula registry | 23 formulas, `id@version`, each citing its clause (including ASME UG-27 cylindrical shell, UG-32(d) 2:1 ellipsoidal head, UG-32(e) torispherical head, B31.3 piping, relief valves, FFS), with inputs, outputs, source hash, input hash, result hash, and step-by-step LaTeX formula derivations; *cannot calculate* when an input is missing, *refused* for a wrong dimension | `backend/engineering/formulas.py`, `units.py` | `GET /api/engineering/formulas` |
+| Formula registry | 29 formulas, `id@version`, each citing its clause (including ASME UG-27 cylindrical shell, complete ASME UG-32 formed heads: ellipsoidal UG-32(d), torispherical UG-32(e), hemispherical UG-32(f), conical UG-32(g), and companion MAWPs, B31.3 piping, relief valves, FFS), with inputs, outputs, source hash, input hash, result hash, and step-by-step LaTeX formula derivations; *cannot calculate* when an input is missing, *refused* for a wrong dimension | `backend/engineering/formulas.py`, `units.py` | `GET /api/engineering/formulas` |
 | Vessel assessment | Rates per location, governing location by **lowest remaining life**, severity, FFS triggers, next survey; withdrawn below t-min | `backend/engineering/assessment.py` | *Can V-2104 keep running?* |
 | Piping assessment | CML rates, remaining life, next measurement | same | The piping survey in the corpus |
 | Stated calculations | Values written in the question are bound only when the question writes them with the right unit | `backend/engineering/stated.py` | "12.0 to 9.4 mm in 4 years, t-min 6.0 mm: remaining life?" |

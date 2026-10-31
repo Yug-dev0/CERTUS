@@ -15,7 +15,7 @@ An air-gapped AI workbench for regulated industrial work. The model, the search,
 ![tests](https://img.shields.io/badge/tests-1211_passed-2ea44f)
 ![red team](https://img.shields.io/badge/red_team-31%2F31_held-2ea44f)
 ![console](https://img.shields.io/badge/                                                  console-132%2F132_screens_clean-2ea44f)
-![formulas](https://img.shields.io/badge/engineering_formulas-23-c8f542)
+![formulas](https://img.shields.io/badge/engineering_formulas-29-c8f542)
 ![egress](https://img.shields.io/badge/egress-0_measured-c8f542)
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab?logo=python&logoColor=white)
 ![Next.js 16](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs&logoColor=white)
@@ -39,7 +39,7 @@ In safety-critical plants (refineries, petrochemicals, power generation), standa
 
 | Safety Boundary | Standard AI & Cloud RAG | CERTUS Industrial AI Workbench |
 |:---|:---|:---|
-| **Calculations** | Probabilistic estimation (LLMs hallucinate arithmetic) | **23 versioned, clause-cited deterministic formulas** computed before drafting |
+| **Calculations** | Probabilistic estimation (LLMs hallucinate arithmetic) | **29 versioned, clause-cited deterministic formulas** computed before drafting |
 | **Conflicting Records** | Model hallucinates or silently guesses one value | **Refusal to guess**: Run halts until a designated engineer resolves the conflict on record |
 | **Data Sovereignty** | Telemetry and tokens sent to cloud APIs | **0.0 bytes external egress**: 100% on-premises loopback with kernel-level netns isolation |
 | **Code Execution** | Unprotected host or open container | **Multi-tier sandbox**: AST validation, memory limits, and private network namespaces |
@@ -48,7 +48,7 @@ In safety-critical plants (refineries, petrochemicals, power generation), standa
 
 ## In one minute
 
-- **Figures come from a registry, not the model.** Corrosion rate, remaining life, severity, the next survey, relief-valve verdicts, re-rating and interim-operation limits are computed by **23 versioned, clause-cited formulas** before the model writes a word. The model is told the figures and cites them.
+- **Figures come from a registry, not the model.** Corrosion rate, remaining life, severity, the next survey, relief-valve verdicts, re-rating and interim-operation limits are computed by **29 versioned, clause-cited formulas** (including complete ASME Section VIII Div 1 UG-32 formed heads and MAWPs) before the model writes a word. The model is told the figures and cites them.
 - **Every claim is checked.** Each material sentence is traced to the passage or calculation it cites, and a claim nothing supports fails verification. Citations that name evidence the run does not hold are refused.
 - **It refuses to guess.** When two records disagree, no figure is stated until a named person chooses, and the choice becomes evidence.
 - **A person approves what policy says must be approved.** A High finding needs the Head of Inspection and then the Plant Manager, each on the version they read.
@@ -207,7 +207,7 @@ One orchestrator handles the whole run. Optional stages appear only when the req
        └─────────────┬─────────────┘
                      ▼
        ┌───────────────────────────┐
-       │   RECKONER (FORMULAS)     │  ──> 23 clause-cited engineering formulas
+       │   RECKONER (FORMULAS)     │  ──> 29 clause-cited engineering formulas
        └─────────────┬─────────────┘
                      ▼
        ┌───────────────────────────┐
@@ -273,7 +273,7 @@ Drafting took 98% of the run on an 8 GB CPU laptop; on a 16 GB laptop the same q
 |---|---|
 | **Understand** | Per-page PDF reading by a local vision model with a cache keyed by image, model digest and prompt; DOCX, XLSX, CSV, PPTX; revision control; uploads judged by their bytes; injected instructions withheld from the model; secrets and personal data scanned |
 | **Decide** | Six declared models with pinned digests; per-stage routing with a reason for every choice; hybrid retrieval with clearance applied before ranking; a default-deny policy gateway |
-| **Compute** | 23 formulas (vessel shells & heads, piping, relief devices, severity, FFS, re-rating, the interim operating envelope, schedules); conflicts that withhold the decision; P&ID graphs read from the drawing; read-only historian and OPC UA adapters |
+| **Compute** | 29 formulas (vessel shells & heads, piping, relief devices, severity, FFS, re-rating, the interim operating envelope, schedules); conflicts that withhold the decision; P&ID graphs read from the drawing; read-only historian and OPC UA adapters |
 | **Execute** | AST validation, OS limits, a runtime guard, a private network namespace on Linux, a rootless container where its image is built, an nftables egress table |
 | **Verify** | Source, citation, page, calculation, engineering, code, document, claim and isolation-plan checks; claim verdicts: calculated, supported, conflicted, unsupported, needs a person |
 | **Govern** | 11 approval rules, two signatures in order for a High finding, separation of duties by account, decisions bound to the version reviewed; accounts only by an administrator's act |

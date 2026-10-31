@@ -150,6 +150,85 @@ class TestFormulas:
         assert output_value(record, "t_min") == 8.09
         assert record.latex and "0.885" in record.latex
 
+    def test_asme_ug32f_hemispherical_head_thickness(self) -> None:
+        # Standard calculation: P=1.5 MPa, L=600 mm, S=138 MPa, E=1.0
+        # t = (1.5 × 600) / (2 × 138 × 1.0 - 0.2 × 1.5) = 900 / 275.7 = 3.26 mm -> structural floor 6.0 mm
+        record = evaluate("design.head_hemispherical_ug32", {
+            "design_pressure": q("1.5 MPa"), "inside_radius": q("600 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert output_value(record, "t_calculated") == 3.26
+        assert output_value(record, "t_min") == 6.0
+        assert record.latex and r"\frac" in record.latex and "t_{\\min}" in record.latex
+
+        # High pressure above structural minimum: P=4.0 MPa, L=800 mm
+        # t = (4.0 × 800) / (276 - 0.8) = 3200 / 275.2 = 11.63 mm
+        high_p = evaluate("design.head_hemispherical_ug32", {
+            "design_pressure": q("4.0 MPa"), "inside_radius": q("800 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert output_value(high_p, "t_calculated") == 11.63
+        assert output_value(high_p, "t_min") == 11.63
+
+    def test_asme_ug32g_conical_head_thickness(self) -> None:
+        # Conical section: P=1.5 MPa, D=1200 mm, alpha=30 deg, S=138 MPa, E=1.0
+        # cos(30°) ≈ 0.866025, denom = 2 × 0.866025 × (138 - 0.9) = 1.73205 × 137.1 = 237.464
+        # t = 1800 / 237.464 = 7.58 mm
+        record = evaluate("design.head_conical_ug32", {
+            "design_pressure": q("1.5 MPa"), "inside_diameter": q("1200 mm"),
+            "half_apex_angle": BoundValue(30.0),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert output_value(record, "t_calculated") == 7.58
+        assert output_value(record, "t_min") == 7.58
+        assert record.latex and r"\cos" in record.latex
+
+        # Exceeding 30° half-apex angle is refused under UG-32(g)
+        refused = evaluate("design.head_conical_ug32", {
+            "design_pressure": q("1.5 MPa"), "inside_diameter": q("1200 mm"),
+            "half_apex_angle": BoundValue(35.0),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert refused.status == "refused"
+        assert "30°" in refused.reason
+
+    def test_asme_ug32_mawp_companion_formulas(self) -> None:
+        # 1. 2:1 Ellipsoidal MAWP
+        rec_ellip = evaluate("design.head_ellipsoidal_mawp_ug32", {
+            "corroded_thickness": q("10 mm"), "inside_diameter": q("1200 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert rec_ellip.status == "calculated"
+        assert round(output_value(rec_ellip, "mawp"), 4) == 2.2962
+        assert "bar" in rec_ellip.display and r"\text{MAWP}" in rec_ellip.latex
+
+        # 2. Torispherical MAWP
+        rec_tori = evaluate("design.head_torispherical_mawp_ug32", {
+            "corroded_thickness": q("12 mm"), "crown_radius": q("1200 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert rec_tori.status == "calculated"
+        assert round(output_value(rec_tori, "mawp"), 4) == 1.5576
+        assert "0.885" in rec_tori.latex
+
+        # 3. Hemispherical MAWP
+        rec_hemi = evaluate("design.head_hemispherical_mawp_ug32", {
+            "corroded_thickness": q("8 mm"), "inside_radius": q("600 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert rec_hemi.status == "calculated"
+        assert round(output_value(rec_hemi, "mawp"), 4) == 3.6702
+
+        # 4. Conical MAWP
+        rec_cone = evaluate("design.head_conical_mawp_ug32", {
+            "corroded_thickness": q("10 mm"), "inside_diameter": q("1200 mm"),
+            "half_apex_angle": BoundValue(30.0),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert rec_cone.status == "calculated"
+        assert round(output_value(rec_cone, "mawp"), 4) == 1.9748
+        assert r"\cos" in rec_cone.latex
+
     def test_ug32_dimension_errors_and_missing_inputs(self) -> None:
         # Missing inside_diameter
         missing = evaluate("design.head_ellipsoidal_ug32", {

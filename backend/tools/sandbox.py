@@ -2066,7 +2066,7 @@ class Sandbox:
             "chunk = bytearray(64 * 1024 * 1024)\n"
             "blocks = []\n"
             "try:\n"
-            "    for _ in range(64):\n"
+            "    for _ in range(128):\n"
             "        blocks.append(bytearray(64 * 1024 * 1024))\n"
             "    print('ALLOCATED')\n"
             "except MemoryError:\n"
