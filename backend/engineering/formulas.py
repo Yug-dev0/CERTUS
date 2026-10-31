@@ -272,24 +272,24 @@ def _head_ellipsoidal_ug32(v: dict[str, Any]) -> dict[str, Any]:
 
 
 def _head_torispherical_ug32(v: dict[str, Any]) -> dict[str, Any]:
-    p, l, s = v["design_pressure"].value, v["crown_radius"].value, v["allowable_stress"].value
+    p, crown_l, s = v["design_pressure"].value, v["crown_radius"].value, v["allowable_stress"].value
     e = float(v["joint_efficiency"])
     structural = v["structural_minimum"].value if "structural_minimum" in v else 6.0
     denominator = s * e - 0.1 * p
     if denominator <= 0:
         raise ValueError("S × E − 0.1 × P must be positive")
-    t_calc = round(0.885 * p * l / denominator, 2)
+    t_calc = round(0.885 * p * crown_l / denominator, 2)
     adopted = max(t_calc, structural)
     return {
         "t_calculated": (t_calc, "mm"),
         "t_min": (adopted, "mm"),
         "_display": (
-            f"t = (0.885 × {_num(p)} × {_num(l)}) / ({_num(s)} × {_num(e)} − 0.1 × {_num(p)}) = {_num(t_calc)} mm; "
+            f"t = (0.885 × {_num(p)} × {_num(crown_l)}) / ({_num(s)} × {_num(e)} − 0.1 × {_num(p)}) = {_num(t_calc)} mm; "
             f"adopted t-min {_num(adopted)} mm"
             + (" (structural minimum, Clause 3.2)" if adopted > t_calc else "")
         ),
         "_latex": (
-            r"t = \frac{0.885 \times " + f"{_num(p)}" + r" \times " + f"{_num(l)}" + r"}{"
+            r"t = \frac{0.885 \times " + f"{_num(p)}" + r" \times " + f"{_num(crown_l)}" + r"}{"
             + f"{_num(s)}" + r" \times " + f"{_num(e)}" + r" - 0.1 \times " + f"{_num(p)}" + r"} = "
             + f"{_num(t_calc)}" + r"\text{ mm}"
             + (r" \implies t_{\min} = \max(" + f"{_num(t_calc)}, {_num(structural)}" + r") = " + f"{_num(adopted)}" + r"\text{ mm}" if adopted > t_calc else r" \implies t_{\min} = " + f"{_num(adopted)}" + r"\text{ mm}")
@@ -298,24 +298,24 @@ def _head_torispherical_ug32(v: dict[str, Any]) -> dict[str, Any]:
 
 
 def _head_hemispherical_ug32(v: dict[str, Any]) -> dict[str, Any]:
-    p, l, s = v["design_pressure"].value, v["inside_radius"].value, v["allowable_stress"].value
+    p, radius_l, s = v["design_pressure"].value, v["inside_radius"].value, v["allowable_stress"].value
     e = float(v["joint_efficiency"])
     structural = v["structural_minimum"].value if "structural_minimum" in v else 6.0
     denominator = 2 * s * e - 0.2 * p
     if denominator <= 0:
         raise ValueError("2 × S × E − 0.2 × P must be positive")
-    t_calc = round(p * l / denominator, 2)
+    t_calc = round(p * radius_l / denominator, 2)
     adopted = max(t_calc, structural)
     return {
         "t_calculated": (t_calc, "mm"),
         "t_min": (adopted, "mm"),
         "_display": (
-            f"t = ({_num(p)} × {_num(l)}) / (2 × {_num(s)} × {_num(e)} − 0.2 × {_num(p)}) = {_num(t_calc)} mm; "
+            f"t = ({_num(p)} × {_num(radius_l)}) / (2 × {_num(s)} × {_num(e)} − 0.2 × {_num(p)}) = {_num(t_calc)} mm; "
             f"adopted t-min {_num(adopted)} mm"
             + (" (structural minimum, Clause 3.2)" if adopted > t_calc else "")
         ),
         "_latex": (
-            r"t = \frac{" + f"{_num(p)}" + r" \times " + f"{_num(l)}" + r"}{2 \times "
+            r"t = \frac{" + f"{_num(p)}" + r" \times " + f"{_num(radius_l)}" + r"}{2 \times "
             + f"{_num(s)}" + r" \times " + f"{_num(e)}" + r" - 0.2 \times " + f"{_num(p)}" + r"} = "
             + f"{_num(t_calc)}" + r"\text{ mm}"
             + (r" \implies t_{\min} = \max(" + f"{_num(t_calc)}, {_num(structural)}" + r") = " + f"{_num(adopted)}" + r"\text{ mm}" if adopted > t_calc else r" \implies t_{\min} = " + f"{_num(adopted)}" + r"\text{ mm}")
@@ -376,40 +376,40 @@ def _head_ellipsoidal_mawp_ug32(v: dict[str, Any]) -> dict[str, Any]:
 
 
 def _head_torispherical_mawp_ug32(v: dict[str, Any]) -> dict[str, Any]:
-    t, l, s = v["corroded_thickness"].value, v["crown_radius"].value, v["allowable_stress"].value
+    t, crown_l, s = v["corroded_thickness"].value, v["crown_radius"].value, v["allowable_stress"].value
     e = float(v["joint_efficiency"])
-    denom = 0.885 * l + 0.1 * t
+    denom = 0.885 * crown_l + 0.1 * t
     if denom <= 0:
         raise ValueError("0.885 × L + 0.1 × t must be positive")
     p_mawp = round((s * e * t) / denom, _PRESSURE_PLACES)
     return {
         "mawp": (p_mawp, "MPa"),
         "_display": (
-            f"P_MAWP = ({_num(s)} × {_num(e)} × {_num(t)}) / (0.885 × {_num(l)} + 0.1 × {_num(t)}) = {_bar(p_mawp)}"
+            f"P_MAWP = ({_num(s)} × {_num(e)} × {_num(t)}) / (0.885 × {_num(crown_l)} + 0.1 × {_num(t)}) = {_bar(p_mawp)}"
         ),
         "_latex": (
             r"P_{\text{MAWP}} = \frac{" + f"{_num(s)}" + r"\text{ MPa} \times " + f"{_num(e)}"
-            + r" \times " + f"{_num(t)}" + r"\text{ mm}}{0.885 \times " + f"{_num(l)}" + r"\text{ mm} + 0.1 \times "
+            + r" \times " + f"{_num(t)}" + r"\text{ mm}}{0.885 \times " + f"{_num(crown_l)}" + r"\text{ mm} + 0.1 \times "
             + f"{_num(t)}" + r"\text{ mm}} = " + f"{_num(p_mawp)}" + r"\text{ MPa} \implies " + f"{_bar(p_mawp)}"
         ),
     }
 
 
 def _head_hemispherical_mawp_ug32(v: dict[str, Any]) -> dict[str, Any]:
-    t, l, s = v["corroded_thickness"].value, v["inside_radius"].value, v["allowable_stress"].value
+    t, radius_l, s = v["corroded_thickness"].value, v["inside_radius"].value, v["allowable_stress"].value
     e = float(v["joint_efficiency"])
-    denom = l + 0.2 * t
+    denom = radius_l + 0.2 * t
     if denom <= 0:
         raise ValueError("Inside radius L + 0.2 × t must be positive")
     p_mawp = round((2 * s * e * t) / denom, _PRESSURE_PLACES)
     return {
         "mawp": (p_mawp, "MPa"),
         "_display": (
-            f"P_MAWP = (2 × {_num(s)} × {_num(e)} × {_num(t)}) / ({_num(l)} + 0.2 × {_num(t)}) = {_bar(p_mawp)}"
+            f"P_MAWP = (2 × {_num(s)} × {_num(e)} × {_num(t)}) / ({_num(radius_l)} + 0.2 × {_num(t)}) = {_bar(p_mawp)}"
         ),
         "_latex": (
             r"P_{\text{MAWP}} = \frac{2 \times " + f"{_num(s)}" + r"\text{ MPa} \times " + f"{_num(e)}"
-            + r" \times " + f"{_num(t)}" + r"\text{ mm}}{" + f"{_num(l)}" + r"\text{ mm} + 0.2 \times "
+            + r" \times " + f"{_num(t)}" + r"\text{ mm}}{" + f"{_num(radius_l)}" + r"\text{ mm} + 0.2 \times "
             + f"{_num(t)}" + r"\text{ mm}} = " + f"{_num(p_mawp)}" + r"\text{ MPa} \implies " + f"{_bar(p_mawp)}"
         ),
     }
