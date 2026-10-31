@@ -5,6 +5,7 @@ import { Calculator, ChevronDown, CircleSlash } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CalculationRecord, ConflictRecord, IntegrityAssessment } from '@/lib/types'
 import { CITE_CHIP } from './cite-chip'
+import { MathView } from '@/components/ui/math'
 
 /**
  * The asset-integrity decision, as the formula registry computed it.
@@ -62,6 +63,27 @@ function Reading({ label, children, cite, onCite }: {
   )
 }
 
+function FormulaProofView({ latex }: { latex: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col gap-1 mt-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex items-center gap-1.5 self-start text-[11px] font-mono text-foreground-muted hover:text-foreground transition-colors cursor-pointer"
+      >
+        <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-semibold text-[10px] text-foreground-secondary border border-line-default">
+          fx
+        </span>
+        <span>{open ? 'Hide step-by-step formula' : 'View step-by-step formula'}</span>
+      </button>
+      {open && (
+        <MathView math={latex} display className="my-1 text-[13px] border border-line-default" />
+      )}
+    </div>
+  )
+}
+
 function Records({ records, onCite }: { records: CalculationRecord[]; onCite: (id: string) => void }) {
   const groups = useMemo(() => {
     const bySubject = new Map<string, CalculationRecord[]>()
@@ -88,7 +110,10 @@ function Records({ records, onCite }: { records: CalculationRecord[]; onCite: (i
                   <span className="text-foreground-muted">{record.clause}</span>
                 </span>
                 {record.status === 'calculated' ? (
-                  <span className="font-mono text-meta text-foreground-secondary">{record.display}</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="font-mono text-meta text-foreground-secondary">{record.display}</span>
+                    {record.latex && <FormulaProofView latex={record.latex} />}
+                  </div>
                 ) : (
                   <span className="font-mono text-meta text-critical-text">{record.reason}</span>
                 )}

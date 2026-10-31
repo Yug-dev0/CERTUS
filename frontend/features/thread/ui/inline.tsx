@@ -3,24 +3,20 @@
 import { cn } from '@/lib/utils'
 import { CITE_CHIP } from './cite-chip'
 import { CiteButton } from './evidence-card'
+import { MathView } from '@/components/ui/math'
 
 /**
  * Renders one run of plain text, applying the small amount of inline
- * markdown a local model actually emits.
+ * markdown and math notation a local model or formulas emit.
  *
- * The model returns markdown whether or not anyone asked it to, and printing
- * it raw put literal asterisks in the answer — "The severity applies as
- * **Medium** under SOP-MNT-022" — on the one piece of prose the whole
- * pipeline exists to produce. That is a small thing that makes the output
- * look unfinished.
+ * The model returns markdown or LaTeX math whether or not anyone asked it to,
+ * and printing it raw put literal asterisks or unformatted tokens in the answer.
  *
- * Deliberately not a markdown library. Three inline forms are handled, and
- * nothing is parsed as HTML, so a document that arrives carrying markup
- * cannot inject anything: every branch produces a text node inside an
- * element this function chose.
+ * Deliberately not an arbitrary HTML parser. Markdown and math tokens are
+ * strictly partitioned and rendered into safe, isolated elements.
  */
 export function InlineMarkdown({ text }: { text: string }) {
-  const tokens = text.split(/(\*\*[^*\n]+\*\*|(?<!\*)\*[^*\n]+\*(?!\*)|`[^`\n]+`)/g)
+  const tokens = text.split(/(\*\*[^*\n]+\*\*|(?<!\*)\*[^*\n]+\*(?!\*)|`[^`\n]+`|\$[^$\n]+\$|\\\(.+?\\\))/g)
   return (
     <>
       {tokens.map((t, i) => {
@@ -43,6 +39,12 @@ export function InlineMarkdown({ text }: { text: string }) {
         }
         if (/^\*[^*\n]+\*$/.test(t)) {
           return <em key={i}>{t.slice(1, -1)}</em>
+        }
+        if (/^\$[^$\n]+\$$/.test(t)) {
+          return <MathView key={i} math={t.slice(1, -1)} />
+        }
+        if (/^\\\(.+?\\\)$/.test(t)) {
+          return <MathView key={i} math={t.slice(2, -2)} />
         }
         return <span key={i}>{t}</span>
       })}

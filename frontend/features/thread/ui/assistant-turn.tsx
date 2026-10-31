@@ -34,6 +34,7 @@ import { HeldBlock } from './held-block'
 import { followUps, type FollowUp } from '../model/follow-ups'
 import { STAGE_ACTIVE } from '../model/board'
 import { UsageFooter } from './usage-footer'
+import { MathView } from '@/components/ui/math'
 
 /**
  * One governed run, rendered as one turn.
@@ -103,13 +104,14 @@ type Block =
   | { kind: 'text'; lines: string[] }
   | { kind: 'list'; ordered: boolean; start: number; items: string[] }
   | { kind: 'heading'; text: string }
+  | { kind: 'math'; latex: string }
 
 /**
- * Paragraphs, lists and headings -- the three block shapes a local model
+ * Paragraphs, lists, headings and math formulas -- the block shapes a local model
  * writes. A paragraph used to be the only one: a bulleted list arrived as
  * one run-on line of "- a - b - c", because a single newline inside a <p>
- * is whitespace. Still no HTML and still no library: lines are sorted into
- * blocks and each block is text nodes inside elements chosen here.
+ * is whitespace. Still no arbitrary HTML and still no bulky library: lines are sorted into
+ * blocks and each block is text nodes or KaTeX math inside elements chosen here.
  *
  * A list continues across a blank line, and a numbered one keeps the number
  * it was written with, so "1. a", blank, "2. b" does not render as two
@@ -119,6 +121,15 @@ function blocksOf(text: string): Block[] {
   const blocks: Block[] = []
   for (const paragraph of text.split(/\n{2,}/)) {
     if (!paragraph.trim()) continue
+    const trimmed = paragraph.trim()
+    if (
+      (trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length >= 4) ||
+      (trimmed.startsWith('\\[') && trimmed.endsWith('\\]') && trimmed.length >= 4)
+    ) {
+      const latex = trimmed.slice(2, -2).trim()
+      blocks.push({ kind: 'math', latex })
+      continue
+    }
     for (const line of paragraph.split('\n')) {
       if (!line.trim()) continue
       const last = blocks[blocks.length - 1]
@@ -164,6 +175,14 @@ function Prose({
     <div className="flex flex-col gap-3">
       {blocks.map((block, bi) => {
         const end = bi === blocks.length - 1 ? tail : null
+        if (block.kind === 'math') {
+          return (
+            <div key={bi} className="my-1">
+              <MathView math={block.latex} display />
+              {end}
+            </div>
+          )
+        }
         if (block.kind === 'heading') {
           return (
             <p key={bi} className={cn(className, 'font-medium text-foreground')}>

@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import 'katex/dist/katex.min.css';
 /* The Hi-Vis motion system: hv-tick, hv-roll, hv-scan, hv-lock, hv-trace,
    hv-seal, hv-caret, each with its reduced-motion fallback. */
 @import './hv-motion.css';

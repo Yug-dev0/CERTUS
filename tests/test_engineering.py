@@ -122,6 +122,49 @@ class TestFormulas:
             "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
         })
         assert output_value(record, "t_calculated") == 4.59
+        assert record.latex and r"\frac" in record.latex
+
+    def test_asme_ug32d_ellipsoidal_head_worked_example(self) -> None:
+        record = evaluate("design.head_ellipsoidal_ug32", {
+            "design_pressure": q("1.05 MPa"), "inside_diameter": q("1200 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert output_value(record, "t_calculated") == 4.57
+        assert output_value(record, "t_min") == 6.0
+        assert record.latex and r"\frac" in record.latex and r"t_{\min}" in record.latex
+
+        # Above structural minimum
+        high_p = evaluate("design.head_ellipsoidal_ug32", {
+            "design_pressure": q("2.5 MPa"), "inside_diameter": q("1200 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert output_value(high_p, "t_calculated") == 10.89
+        assert output_value(high_p, "t_min") == 10.89
+
+    def test_asme_ug32e_torispherical_head_worked_example(self) -> None:
+        record = evaluate("design.head_torispherical_ug32", {
+            "design_pressure": q("1.05 MPa"), "crown_radius": q("1200 mm"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert output_value(record, "t_calculated") == 8.09
+        assert output_value(record, "t_min") == 8.09
+        assert record.latex and "0.885" in record.latex
+
+    def test_ug32_dimension_errors_and_missing_inputs(self) -> None:
+        # Missing inside_diameter
+        missing = evaluate("design.head_ellipsoidal_ug32", {
+            "design_pressure": q("1.05 MPa"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert missing.status == "cannot_calculate"
+        assert "inside_diameter" in missing.missing
+
+        # Dimension error: pressure where diameter belongs
+        refused = evaluate("design.head_ellipsoidal_ug32", {
+            "design_pressure": q("1.05 MPa"), "inside_diameter": q("5 bar"),
+            "allowable_stress": q("138 MPa"), "joint_efficiency": BoundValue(1.0),
+        })
+        assert refused.status == "refused"
 
     def test_sop_ins_017_clause_4_3_worked_example(self) -> None:
         record = evaluate("design.pipe_t_min", {

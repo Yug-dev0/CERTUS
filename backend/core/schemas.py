@@ -467,6 +467,7 @@ class CalculationRecord(BaseModel):
     inputs: list[CalculationInput] = Field(default_factory=list)
     outputs: dict[str, Any] = Field(default_factory=dict)
     display: str | None = None
+    latex: str | None = None
     missing: list[str] = Field(default_factory=list)
     reason: str | None = None
     formula_hash: str

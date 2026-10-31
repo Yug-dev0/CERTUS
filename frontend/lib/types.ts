@@ -432,6 +432,7 @@ export interface CalculationRecord {
   inputs: CalculationInput[]
   outputs: Record<string, { value: unknown; unit: string | null }>
   display?: string | null
+  latex?: string | null
   missing: string[]
   reason?: string | null
   formula_hash: string

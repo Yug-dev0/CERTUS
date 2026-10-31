@@ -245,6 +245,58 @@ def _shell_t_min_ug27(v: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _head_ellipsoidal_ug32(v: dict[str, Any]) -> dict[str, Any]:
+    p, d, s = v["design_pressure"].value, v["inside_diameter"].value, v["allowable_stress"].value
+    e = float(v["joint_efficiency"])
+    structural = v["structural_minimum"].value if "structural_minimum" in v else 6.0
+    denominator = 2 * s * e - 0.2 * p
+    if denominator <= 0:
+        raise ValueError("2 × S × E − 0.2 × P must be positive")
+    t_calc = round(p * d / denominator, 2)
+    adopted = max(t_calc, structural)
+    return {
+        "t_calculated": (t_calc, "mm"),
+        "t_min": (adopted, "mm"),
+        "_display": (
+            f"t = ({_num(p)} × {_num(d)}) / (2 × {_num(s)} × {_num(e)} − 0.2 × {_num(p)}) = {_num(t_calc)} mm; "
+            f"adopted t-min {_num(adopted)} mm"
+            + (" (structural minimum, Clause 3.2)" if adopted > t_calc else "")
+        ),
+        "_latex": (
+            r"t = \frac{" + f"{_num(p)}" + r" \times " + f"{_num(d)}" + r"}{2 \times "
+            + f"{_num(s)}" + r" \times " + f"{_num(e)}" + r" - 0.2 \times " + f"{_num(p)}" + r"} = "
+            + f"{_num(t_calc)}" + r"\text{ mm}"
+            + (r" \implies t_{\min} = \max(" + f"{_num(t_calc)}, {_num(structural)}" + r") = " + f"{_num(adopted)}" + r"\text{ mm}" if adopted > t_calc else r" \implies t_{\min} = " + f"{_num(adopted)}" + r"\text{ mm}")
+        ),
+    }
+
+
+def _head_torispherical_ug32(v: dict[str, Any]) -> dict[str, Any]:
+    p, l, s = v["design_pressure"].value, v["crown_radius"].value, v["allowable_stress"].value
+    e = float(v["joint_efficiency"])
+    structural = v["structural_minimum"].value if "structural_minimum" in v else 6.0
+    denominator = s * e - 0.1 * p
+    if denominator <= 0:
+        raise ValueError("S × E − 0.1 × P must be positive")
+    t_calc = round(0.885 * p * l / denominator, 2)
+    adopted = max(t_calc, structural)
+    return {
+        "t_calculated": (t_calc, "mm"),
+        "t_min": (adopted, "mm"),
+        "_display": (
+            f"t = (0.885 × {_num(p)} × {_num(l)}) / ({_num(s)} × {_num(e)} − 0.1 × {_num(p)}) = {_num(t_calc)} mm; "
+            f"adopted t-min {_num(adopted)} mm"
+            + (" (structural minimum, Clause 3.2)" if adopted > t_calc else "")
+        ),
+        "_latex": (
+            r"t = \frac{0.885 \times " + f"{_num(p)}" + r" \times " + f"{_num(l)}" + r"}{"
+            + f"{_num(s)}" + r" \times " + f"{_num(e)}" + r" - 0.1 \times " + f"{_num(p)}" + r"} = "
+            + f"{_num(t_calc)}" + r"\text{ mm}"
+            + (r" \implies t_{\min} = \max(" + f"{_num(t_calc)}, {_num(structural)}" + r") = " + f"{_num(adopted)}" + r"\text{ mm}" if adopted > t_calc else r" \implies t_{\min} = " + f"{_num(adopted)}" + r"\text{ mm}")
+        ),
+    }
+
+
 def _pipe_t_min(v: dict[str, Any]) -> dict[str, Any]:
     p, d, s = v["design_pressure"].value, v["outside_diameter"].value, v["allowable_stress"].value
     e, w, y = float(v["joint_quality"]), float(v["weld_strength"]), float(v["coefficient_y"])
@@ -761,6 +813,32 @@ FORMULAS: dict[str, Formula] = {
             _shell_t_min_ug27, ("t_calculated", "t_min"),
         ),
         Formula(
+            "design.head_ellipsoidal_ug32", 1, "Minimum 2:1 ellipsoidal head thickness (UG-32(d))",
+            "SOP-INS-014 Clauses 3.1-3.2; ASME Section VIII Div 1 UG-32(d)",
+            "t = (P × D) / (2 × S × E − 0.2 × P); t_min = max(t, structural minimum 6.0 mm)",
+            (
+                _q("design_pressure", PRESSURE, "design pressure"),
+                _q("inside_diameter", LENGTH, "inside diameter"),
+                _q("allowable_stress", PRESSURE, "allowable stress at design temperature"),
+                Parameter("joint_efficiency", "number", "joint efficiency E"),
+                _q("structural_minimum", LENGTH, "structural minimum (6.0 mm carbon steel)", optional=True),
+            ),
+            _head_ellipsoidal_ug32, ("t_calculated", "t_min"),
+        ),
+        Formula(
+            "design.head_torispherical_ug32", 1, "Minimum torispherical head thickness (UG-32(e))",
+            "SOP-INS-014 Clauses 3.1-3.2; ASME Section VIII Div 1 UG-32(e)",
+            "t = (0.885 × P × L) / (S × E − 0.1 × P); t_min = max(t, structural minimum 6.0 mm)",
+            (
+                _q("design_pressure", PRESSURE, "design pressure"),
+                _q("crown_radius", LENGTH, "inside crown dish radius L"),
+                _q("allowable_stress", PRESSURE, "allowable stress at design temperature"),
+                Parameter("joint_efficiency", "number", "joint efficiency E"),
+                _q("structural_minimum", LENGTH, "structural minimum (6.0 mm carbon steel)", optional=True),
+            ),
+            _head_torispherical_ug32, ("t_calculated", "t_min"),
+        ),
+        Formula(
             "design.pipe_t_min", 1, "Piping pressure design thickness and t-min",
             "SOP-INS-017 Clauses 4.1-4.3",
             "t_p = (P × D) / (2 × (S × E × W + P × Y)); t_min = max(t_p, structural minimum 2.8 mm)",
@@ -926,6 +1004,123 @@ def catalogue() -> list[dict[str, Any]]:
     return [formula.describe() for formula in FORMULAS.values()]
 
 
+def _default_latex(formula_id: str, values: dict[str, Any], result: dict[str, Any], display: str | None) -> str | None:
+    try:
+        if formula_id == "design.shell_t_min_ug27":
+            p, r, s = values["design_pressure"].value, values["inside_radius"].value, values["allowable_stress"].value
+            e = values["joint_efficiency"]
+            t_calc, t_min = result["t_calculated"][0], result["t_min"][0]
+            struct = values.get("structural_minimum")
+            struct_val = struct.value if struct else 6.0
+            adopted_note = (
+                r" \implies t_{\min} = \max(" + f"{_num(t_calc)}, {_num(struct_val)}" + r") = " + f"{_num(t_min)}" + r"\text{ mm}"
+                if t_min > t_calc else
+                r" \implies t_{\min} = " + f"{_num(t_min)}" + r"\text{ mm}"
+            )
+            return (
+                r"t = \frac{" + f"{_num(p)}" + r" \times " + f"{_num(r)}" + r"}{"
+                + f"{_num(s)}" + r" \times " + f"{_num(e)}" + r" - 0.6 \times " + f"{_num(p)}" + r"} = "
+                + f"{_num(t_calc)}" + r"\text{ mm}" + adopted_note
+            )
+        if formula_id == "design.pipe_t_min":
+            p, d, s = values["design_pressure"].value, values["outside_diameter"].value, values["allowable_stress"].value
+            e, w, y = values["joint_quality"], values["weld_strength"], values["coefficient_y"]
+            t_p, t_min = result["t_pressure"][0], result["t_min"][0]
+            return (
+                r"t_p = \frac{" + f"{_num(p)}" + r" \times " + f"{_num(d)}" + r"}{2 \times ("
+                + f"{_num(s)}" + r" \times " + f"{_num(e)}" + r" \times " + f"{_num(w)}"
+                + r" + " + f"{_num(p)}" + r" \times " + f"{_num(y)}" + r")} = "
+                + f"{_num(t_p)}" + r"\text{ mm} \implies t_{\min} = " + f"{_num(t_min)}" + r"\text{ mm}"
+            )
+        if formula_id == "corrosion.short_term_rate":
+            t_prev, t_curr = values["t_previous"].value, values["t_current"].value
+            years = values["years_between"].value
+            rate = result["rate"][0]
+            return (
+                r"\text{Rate}_{\text{short}} = \frac{"
+                + f"{_num(t_prev)}" + r"\text{ mm} - " + f"{_num(t_curr)}" + r"\text{ mm}}{"
+                + f"{_num(years)}" + r"\text{ yr}} = " + f"{_num(rate)}" + r"\text{ mm/yr}"
+            )
+        if formula_id == "corrosion.long_term_rate":
+            t_nom, t_curr = values["t_nominal"].value, values["t_current"].value
+            years = values["years_in_service"].value
+            rate = result["rate"][0]
+            return (
+                r"\text{Rate}_{\text{long}} = \frac{"
+                + f"{_num(t_nom)}" + r"\text{ mm} - " + f"{_num(t_curr)}" + r"\text{ mm}}{"
+                + f"{_num(years)}" + r"\text{ yr}} = " + f"{_num(rate)}" + r"\text{ mm/yr}"
+            )
+        if formula_id == "corrosion.governing_rate":
+            st, lt = values["short_term_rate"].value, values["long_term_rate"].value
+            rate = result["rate"][0]
+            return (
+                r"\text{Rate}_{\text{gov}} = \max(" + f"{_num(st)}, {_num(lt)}" + r") = "
+                + f"{_num(rate)}" + r"\text{ mm/yr}"
+            )
+        if formula_id == "integrity.remaining_life":
+            t_curr, t_min = values["t_current"].value, values["t_min"].value
+            rate = values["rate"].value
+            rem = result["remaining_life"][0]
+            return (
+                r"\text{Remaining Life} = \frac{"
+                + f"{_num(t_curr)}" + r"\text{ mm} - " + f"{_num(t_min)}" + r"\text{ mm}}{"
+                + f"{_num(rate)}" + r"\text{ mm/yr}} = " + f"{_num(rem)}" + r"\text{ yr}"
+            )
+        if formula_id == "integrity.local_metal_loss":
+            t_nom, t_curr = values["t_nominal"].value, values["t_current"].value
+            loss = result["loss_percent"][0]
+            trig = result["ffs_trigger"][0]
+            return (
+                r"\text{Metal Loss} = \frac{" + f"{_num(t_nom)} - {_num(t_curr)}" + r"}{"
+                + f"{_num(t_nom)}" + r"} \times 100\% = " + f"{_num(loss)}" + r"\%"
+                + (r" \quad (> 25\% \implies \text{FFS Trigger})" if trig else "")
+            )
+        if formula_id == "envelope.interim_operating_pressure":
+            oper, mawp = values["operating_pressure"].value, values["mawp"].value
+            limit, within = result["limit"][0], result["within_limit"][0]
+            comp = r"\le" if within else ">"
+            return (
+                r"P_{\text{oper}} \le 0.90 \times \text{MAWP} \iff "
+                + f"{_num(oper)}" + r"\text{ bar} " + comp + " " + f"{_num(limit)}" + r"\text{ bar}"
+            )
+        if formula_id == "relief.as_received_test":
+            fail_above = result["fail_above"][0]
+            passed = result["passed"][0]
+            status = r"\text{PASSED}" if passed else r"\text{FAILED}"
+            if values.get("opening_pressure"):
+                op = values["opening_pressure"].value
+                comp = r"\le" if passed else ">"
+                return (
+                    r"P_{\text{open}} \le 1.10 \times P_{\text{set}} \iff "
+                    + f"{_num(op)}" + r"\text{ bar} " + comp + " " + f"{_num(fail_above)}" + r"\text{ bar} \quad (" + status + ")"
+                )
+        if formula_id == "relief.set_pressure_limit":
+            set_p, mawp = values["set_pressure"].value, values["mawp"].value
+            within = result["within_limit"][0]
+            comp = r"\le" if within else ">"
+            return (
+                r"P_{\text{set}} \le \text{MAWP} \iff "
+                + f"{_num(set_p)}" + r"\text{ bar} " + comp + " " + f"{_num(mawp)}" + r"\text{ bar}"
+            )
+        if formula_id == "relief.inlet_loss":
+            loss_percent, within = result["loss_percent"][0], result["within_limit"][0]
+            comp = r"\le" if within else ">"
+            return (
+                r"\Delta P_{\text{inlet}} \le 3\% \times P_{\text{set}} \iff "
+                + f"{_num(loss_percent)}" + r"\% " + comp + r" 3\%"
+            )
+        if formula_id == "ffs.rerated_mawp":
+            mawp, rsf = values["mawp"].value, values["rsf"]
+            rerated = result["mawp_rerated"][0]
+            return (
+                r"\text{MAWP}_{\text{rerated}} = \text{MAWP} \times \text{RSF} = "
+                + f"{_num(mawp)}" + r"\text{ bar} \times " + f"{_num(rsf)}" + r" = " + f"{_num(rerated)}" + r"\text{ bar}"
+            )
+    except Exception:
+        pass
+    return None
+
+
 # --------------------------------------------------------------- evaluation
 def evaluate(
     formula_id: str,
@@ -991,6 +1186,9 @@ def evaluate(
         return CalculationRecord(**base, status="refused", reason=str(exc))
 
     display = str(result.pop("_display", "")) or None
+    latex = result.pop("_latex", None)
+    if not latex:
+        latex = _default_latex(formula.id, values, result, display)
     outputs = {name: {"value": value, "unit": unit} for name, (value, unit) in result.items()}
     input_hash = _sha([item.model_dump() for item in recorded])
     result_hash = _sha({"formula": formula.source_hash, "inputs": input_hash, "outputs": outputs})
@@ -999,6 +1197,7 @@ def evaluate(
         status="calculated",
         outputs=outputs,
         display=display,
+        latex=latex,
         input_hash=input_hash,
         result_hash=result_hash,
     )
