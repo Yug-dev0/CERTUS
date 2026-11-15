@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="256" height="256" role="img" aria-label="CERTUS mark">
   <title>CERTUS mark</title>
-  <path d="M6 16V6H16M32 6H42V16M42 32V42H32M16 42H6V32" fill="none" stroke="#0b0b0b" stroke-width="3" stroke-linecap="square"/>
-  <rect x="16" y="16" width="16" height="16" fill="#0b0b0b"/>
+  <path d="M38 10H18L10 18V30L18 38H38M38 10V16M38 38V32" fill="none" stroke="#0b0b0b" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="24,15 33,24 24,33 15,24" fill="#0b0b0b"/>
 </svg>

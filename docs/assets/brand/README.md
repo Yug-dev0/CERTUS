@@ -7,19 +7,19 @@
 
 </div>
 
-The CERTUS mark is the **lock**: four corner brackets closed on a lime square.
+The CERTUS mark is the **caliper C and ASME diamond proof seal**: a precision engineering caliper with measuring jaws closing on an action-lime diamond proof stamp.
 
-- **The brackets** are the ones the product draws onto evidence when every claim resting on it is supported, in Harness Control and in the answer's evidence graph. They say *checked*.
-- **The square** is the seal: the hash that closes the record.
+- **The caliper C** represents precision physical engineering, dimensional verification, and tolerance verification. Its chamfered 45° industrial edges and open measuring jaws embody deterministic calculation and physical plant measurement.
+- **The diamond** is the seal: the ASME Code Symbol Stamp and mathematical Q.E.D. / Ed25519 cryptographic hash verification ("Answers your plant can prove").
 
-The mark moves the way the product does. Where it animates (the landing header), the brackets close in from 1.5× and the seal ticks on after them, on the same curve the product uses to lock onto evidence.
+The mark moves the way the product does. Where it animates (the landing header), the caliper C locks into place and the diamond proof seal ticks on after it, on the same curve the product uses to lock onto evidence.
 
 ## Files
 
 | File | Use it for |
 |---|---|
-| [`certus-mark.svg`](certus-mark.svg) | Ink brackets, lime seal. Light grounds. |
-| [`certus-mark-white.svg`](certus-mark-white.svg) | Paper brackets, lime seal. Dark grounds and photographs. |
+| [`certus-mark.svg`](certus-mark.svg) | Dark caliper, lime diamond seal. Light grounds. |
+| [`certus-mark-white.svg`](certus-mark-white.svg) | Paper caliper, lime diamond seal. Dark grounds and photographs. |
 | [`certus-mark-mono.svg`](certus-mark-mono.svg) | All ink, for print, stamps and anything that cannot carry colour. |
 | [`certus-lockup-light.svg`](certus-lockup-light.svg) | Mark, name and product line, on light grounds. |
 | [`certus-lockup-dark.svg`](certus-lockup-dark.svg) | The same, on dark grounds. |
@@ -52,5 +52,5 @@ Both are SIL Open Font License and ship in `frontend/app/fonts`, so nothing is f
 
 - **Clear space:** keep at least half the mark's width empty on every side.
 - **Minimum size:** 16 px on screen, 6 mm in print. Below that, use the name alone.
-- **Corners are square.** Do not round the brackets or the seal, add a stroke, glow or shadow, or rotate the mark.
-- **Lime stays in the seal.** Do not colour the brackets lime, and do not put the mark on a lime ground; use the mono mark there.
+- **Angles are precise 45° chamfers.** Do not round the caliper edges or diamond seal, add a glow or shadow, or distort the mark.
+- **Lime stays in the diamond seal.** Do not colour the caliper frame lime, and do not put the mark on a lime ground; use the mono mark there.

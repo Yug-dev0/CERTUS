@@ -105,6 +105,9 @@ def find_runs(api: str, password: str) -> dict[str, str]:
 
 
 def _browser() -> str:
+    mac_chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    if mac_chrome.is_file():
+        return str(mac_chrome)
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"):
         found = shutil.which(name)
         if found:
