@@ -5,7 +5,7 @@ import { ChainVerify } from '@/components/landing/chain-verify'
 import { CopyCommands } from '@/components/landing/copy-commands'
 import { Crew } from '@/components/landing/crew'
 import { CHAIN_VERIFY, CREW_COPY, HERO, PROOF_SEQ, RAIL, RUN_IT, STATS, TAMPER } from '@/components/landing/copy'
-import { HeroVessel } from '@/components/landing/hero-vessel'
+import { HeroPid } from '@/components/landing/hero-pid'
 import * as R from '@/components/landing/landing-data'
 import { LiveEgress } from '@/components/landing/live-egress'
 import { ProductGallery, type GallerySlide } from '@/components/landing/product-gallery'
@@ -204,7 +204,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {reticle.length > 0 ? <HeroVessel label={reticle} note={HERO.vesselNote} /> : null}
+          {reticle.length > 0 ? <HeroPid label={reticle} note={HERO.pidNote} /> : null}
 
           <dl className="lp-rail lp-load-4" aria-label={RAIL.label}>
             <div className="hd">{RAIL.label}</div>

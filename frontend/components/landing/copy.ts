@@ -39,8 +39,9 @@ export const HERO = {
   title: 'Answers your plant can',
   titleKey: 'prove.',
   lede: 'CERTUS runs the model, the search and the checks on your own hardware, and hands over every answer with its sources, its checks and its record.',
-  // The vessel is a drawing; the page says so where it is drawn.
-  vesselNote: 'Illustration · label from the recorded run',
+  // The P&ID is interactive; the page notes its plant subsystem and run citation.
+  vesselNote: 'Interactive P&ID · Crude overhead subsystem · Record #16 citation',
+  pidNote: 'Interactive P&ID · Crude overhead subsystem · Record #16 citation',
   primary: { label: 'Open the workbench', href: '/sign-in' },
   how: { label: 'How a run is proved', href: '#proof' },
 } as const
