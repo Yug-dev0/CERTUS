@@ -23,7 +23,7 @@ classification_version: 1
 conversation:
   max_words: 6
   patterns:
-    - "(hi|hello|hey|hiya|namaste|yo)( there| certus| again)?"
+    - "(hi+|hello+|hey+|hiya|namaste|yo|howdy|sup)( there| certus| again)?"
     - "good (morning|afternoon|evening)( certus)?"
     - "(thanks|thank you|thx|ty)( so much| a lot| certus)?"
     - "(ok|okay|cool|great|nice|perfect|got it|understood|sounds good)"
