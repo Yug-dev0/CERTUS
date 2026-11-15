@@ -21,18 +21,34 @@ classification_version: 1
 # anything that goes on to ask something ("yes, and what about clause 5?")
 # is a task and takes the full pipeline.
 conversation:
-  max_words: 6
+  max_words: 12
   patterns:
     - "(hi+|hello+|hey+|hiya|namaste|yo|howdy|sup)( there| certus| again)?"
-    - "good (morning|afternoon|evening)( certus)?"
+    - "good (morning|afternoon|evening|day|night)( certus)?"
+    - "greetings( certus)?"
+    - "how are you( doing)?( today)?( certus)?"
+    - "how (is it|are things|is everything) going( today)?( certus)?"
+    - "how('s|s) it going( today)?( certus)?"
+    - "how do you do"
+    - "what('s|s| is) up( certus)?"
+    - "how('s|s) your day( going)?"
+    - "nice to meet you"
+    - "pleasure to meet you"
     - "(thanks|thank you|thx|ty)( so much| a lot| certus)?"
-    - "(ok|okay|cool|great|nice|perfect|got it|understood|sounds good)"
-    - "(yes|yeah|yep|no|nope|sure)"
-    - "(bye|goodbye|see you)"
+    - "(ok|okay|cool|great|nice|perfect|got it|understood|sounds good|awesome)"
+    - "(yes|yeah|yep|no|nope|sure|definitely|absolutely)"
+    - "(bye|goodbye|see you|take care|have a good (day|one))"
+    - "you('re|re) welcome"
+    - "no problem"
     - "(who|what) are you"
+    - "who (made|created|built|designed) you"
+    - "tell me (about yourself|who you are)"
     - "what (can|do) you do"
     - "how do (i|you) use (this|you|certus)"
-    - "help"
+    - "help( me)?"
+    - "ping|test"
+    - "tell me a joke"
+    - "are you (an? )?(ai|robot|real)"
 
 # ---------------------------------------------------------------- input type
 # Derived primarily from attached file extensions/MIME, with prompt hints as a

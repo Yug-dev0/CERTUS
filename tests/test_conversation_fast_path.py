@@ -32,7 +32,8 @@ OPERATOR = make_user("operator", role="operator", department="operations")
 class TestWhatCountsAsConversation:
     @pytest.mark.parametrize(
         "message",
-        ["Hi", "hii", "heyy", "hello!", "Hey there", "Good morning", "Thanks", "thank you so much",
+        ["Hi", "hii", "heyy", "hello!", "Hey there", "how are you", "how are you doing",
+         "what's up", "tell me a joke", "Good morning", "Thanks", "thank you so much",
          "yes", "No.", "ok", "Got it", "What can you do?", "who are you", "help"],
     )
     def test_the_whole_message_is_conversation(self, message: str) -> None:
