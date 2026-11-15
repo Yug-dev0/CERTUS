@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# macOS App executable for CERTUS
+
+APP_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$APP_DIR"
+
+# Launch in Terminal so the user sees the dashboard and options
+osascript -e "tell application \"Terminal\" to do script \"cd '$APP_DIR' && ./launch.sh\""
