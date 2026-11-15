@@ -137,14 +137,49 @@ function createMainWindow() {
     title: 'CERTUS — Sovereign Industrial AI Workbench',
     backgroundColor: '#070707',
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 18 },
+    trafficLightPosition: { x: 20, y: 22 },
     show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
     icon: path.join(ROOT_DIR, 'docs', 'assets', 'brand', 'certus-app-icon.icns'),
+  });
+
+  // Inject macOS titlebar clearance & window drag styles
+  mainWindow.webContents.on('dom-ready', () => {
+    mainWindow.webContents.insertCSS(`
+      /* macOS desktop frameless titlebar clearance */
+      .hv-auth > header {
+        padding-left: 96px !important;
+        -webkit-app-region: drag;
+      }
+      .hv-auth > header a,
+      .hv-auth > header button {
+        -webkit-app-region: no-drag;
+      }
+      .lp-header .lp-shell.row {
+        padding-left: 96px !important;
+        -webkit-app-region: drag;
+      }
+      .lp-header .lp-shell.row a,
+      .lp-header .lp-shell.row button {
+        -webkit-app-region: no-drag;
+      }
+      aside[aria-label="Workbench"] {
+        padding-top: 42px !important;
+      }
+      aside[aria-label="Workbench"] > div:first-child {
+        -webkit-app-region: drag;
+      }
+      aside[aria-label="Workbench"] a,
+      aside[aria-label="Workbench"] button,
+      aside[aria-label="Workbench"] input {
+        -webkit-app-region: no-drag;
+      }
+    `);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 export function AuthShell({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
     <div className="hv-auth flex flex-col">
-      <header className="flex h-16 items-center justify-between px-5 sm:px-8">
+      <header className="flex h-16 items-center justify-between pl-6 pr-5 sm:pl-24 sm:pr-8">
         <Link
           href="/"
           aria-label="CERTUS — home"

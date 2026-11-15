@@ -2312,3 +2312,58 @@ html[data-theme='dark'],
   .brief .hv-lock,
   .brief .hv-tick { animation: none; opacity: 1; transform: none; }
 }
+
+/* ==================================================================== */
+/* DESKTOP APP / MACOS TITLEBAR INTEGRATION                             */
+/* ==================================================================== */
+html.is-mac-app .hv-auth > header,
+html.is-desktop-app .hv-auth > header {
+  padding-left: 96px;
+  -webkit-app-region: drag;
+}
+
+html.is-mac-app .hv-auth > header a,
+html.is-mac-app .hv-auth > header button,
+html.is-desktop-app .hv-auth > header a,
+html.is-desktop-app .hv-auth > header button {
+  -webkit-app-region: no-drag;
+}
+
+html.is-mac-app aside[aria-label="Workbench"],
+html.is-desktop-app aside[aria-label="Workbench"] {
+  padding-top: 42px;
+}
+
+html.is-mac-app aside[aria-label="Workbench"]::before,
+html.is-desktop-app aside[aria-label="Workbench"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 42px;
+  -webkit-app-region: drag;
+  pointer-events: auto;
+}
+
+html.is-mac-app aside[aria-label="Workbench"] a,
+html.is-mac-app aside[aria-label="Workbench"] button,
+html.is-mac-app aside[aria-label="Workbench"] input,
+html.is-desktop-app aside[aria-label="Workbench"] a,
+html.is-desktop-app aside[aria-label="Workbench"] button,
+html.is-desktop-app aside[aria-label="Workbench"] input {
+  -webkit-app-region: no-drag;
+}
+
+html.is-mac-app .lp-header .lp-shell.row,
+html.is-desktop-app .lp-header .lp-shell.row {
+  padding-left: 96px;
+  -webkit-app-region: drag;
+}
+
+html.is-mac-app .lp-header .lp-shell.row a,
+html.is-mac-app .lp-header .lp-shell.row button,
+html.is-desktop-app .lp-header .lp-shell.row a,
+html.is-desktop-app .lp-header .lp-shell.row button {
+  -webkit-app-region: no-drag;
+}
