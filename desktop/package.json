@@ -1,0 +1,53 @@
+{
+  "name": "certus-desktop",
+  "productName": "CERTUS",
+  "version": "1.0.0",
+  "description": "CERTUS - Sovereign Air-Gapped Industrial AI Workbench",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac dmg --arm64",
+    "build:mac-x64": "electron-builder --mac dmg --x64"
+  },
+  "author": "Yug Patel <yug.dev04@gmail.com>",
+  "license": "MIT",
+  "build": {
+    "appId": "ai.certus.workbench",
+    "productName": "CERTUS",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "../docs/assets/brand/certus-app-icon.icns",
+      "target": [
+        "dmg"
+      ],
+      "darkModeSupport": true
+    },
+    "dmg": {
+      "title": "CERTUS",
+      "icon": "../docs/assets/brand/certus-app-icon.icns",
+      "contents": [
+        {
+          "x": 130,
+          "y": 200
+        },
+        {
+          "x": 410,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 360
+      }
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}
