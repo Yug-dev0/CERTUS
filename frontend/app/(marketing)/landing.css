@@ -148,16 +148,16 @@
   /* ---- the vessel ----------------------------------------------------------- */
   .lp-vessel { position: relative; width: 100%; max-width: 360px; margin: 0 auto; }
   .lp-vessel .art { display: block; width: 100%; height: auto; aspect-ratio: 320 / 480; overflow: visible; }
-  .lp-vessel .art path, .lp-vessel .art rect { fill: none; vector-effect: non-scaling-stroke; }
-  .lp-vessel .aux path { stroke: #34342f; stroke-width: 1; }
-  .lp-vessel .body path { stroke: #c9c9c2; stroke-width: 1.25; }
-  .lp-vessel .body path:first-child { fill: rgb(255 255 255 / 0.018); }
-  .lp-vessel .body .thin, .lp-vessel .target .thin { stroke-width: 1; }
-  .lp-vessel .weld path { stroke: #5c5c56; stroke-width: 1; }
-  .lp-vessel .tags text { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; fill: var(--lp-fg-3); }
+  .lp-vessel .art path, .lp-vessel .art rect, .lp-vessel .art circle, .lp-vessel .art line { fill: none; vector-effect: non-scaling-stroke; }
+  .lp-vessel .aux :is(path, line) { stroke: #34342f; stroke-width: 1; }
+  .lp-vessel .body :is(path, rect, circle, line) { stroke: #c9c9c2; stroke-width: 1.25; }
+  .lp-vessel .body path:first-child, .lp-vessel .body rect:first-child { fill: rgb(255 255 255 / 0.018); }
+  .lp-vessel .body .thin, .lp-vessel .target .thin { stroke-width: 0.9; stroke: #8a8a82; }
+  .lp-vessel .weld :is(path, line) { stroke: #5c5c56; stroke-width: 1; }
+  .lp-vessel .tags text { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.08em; fill: var(--lp-fg-3); }
   .lp-vessel .tags rect, .lp-vessel .tags path { stroke: #5c5c56; stroke-width: 1; }
   /* Locked, the target takes the lime. This is the static frame. */
-  .lp-vessel .target path { stroke: var(--lp-lime); stroke-width: 1.25; }
+  .lp-vessel .target :is(path, rect, line) { stroke: var(--lp-lime); stroke-width: 1.25; }
   .lp-vessel .scan { transform: translateY(250px); }
   .lp-vessel .scan path { stroke: var(--lp-lime); stroke-width: 1; }
   .lp-vessel .scan .tail { fill: url(#lp-scan-tail); opacity: 0; }
@@ -165,7 +165,7 @@
   .lp-vessel .reticle { transform-box: fill-box; transform-origin: center; }
   .lp-vessel .reticle path { stroke: var(--lp-lime); stroke-width: 1.5; }
   /* The pin: a lead from the reticle's lower corner to the clause. */
-  .lp-vessel .pin { position: absolute; left: 80.6%; top: 61.3%; margin: 0; pointer-events: none; }
+  .lp-vessel .pin { position: absolute; left: 80.6%; top: 61.3%; margin: 0; pointer-events: none; z-index: 5; }
   .lp-vessel .pin .lead { display: block; width: 1px; height: 22px; background: var(--lp-lime); }
   .lp-vessel .pin .box {
     display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: 200px; transform: translateX(-72%);
@@ -173,183 +173,8 @@
     font-family: var(--font-mono); font-size: 10px; line-height: 1.35; letter-spacing: 0.06em; text-transform: uppercase; color: var(--lp-lime);
   }
   .lp-vessel .note { margin: 14px 0 0; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--lp-fg-3); text-align: center; }
+  .lp-rack .pin { top: 54.5%; }
   @media (max-width: 719px) { .lp-vessel { max-width: 300px; } }
-
-  /* ---- the interactive P&ID hero -------------------------------------------- */
-  .lp-pid { position: relative; width: 100%; max-width: 380px; margin: 0 auto; }
-  
-  .lp-pid-header {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding: 6px 10px; margin-bottom: 8px; border: 1px solid var(--lp-line);
-    background: rgb(255 255 255 / 0.015);
-  }
-  .lp-pid-meta { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
-  .lp-pid-live-dot {
-    width: 6px; height: 6px; border-radius: 50%; background: var(--lp-lime);
-    box-shadow: 0 0 6px var(--lp-lime);
-    flex-shrink: 0;
-  }
-  .lp-pid[data-mode='loto'] .lp-pid-live-dot { background: var(--lp-crit); box-shadow: 0 0 6px var(--lp-crit); }
-  .lp-pid-tag { font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.06em; color: var(--lp-fg); }
-  .lp-pid-title { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em; color: var(--lp-fg-3); }
-  
-  .lp-pid-modes { display: flex; gap: 2px; }
-  .lp-pid-mode-btn {
-    padding: 2px 6px; border: 1px solid var(--lp-line); background: transparent;
-    font-family: var(--font-mono); font-size: 8.5px; font-weight: 500; letter-spacing: 0.08em;
-    color: var(--lp-fg-3); cursor: pointer; transition: all 120ms ease;
-  }
-  .lp-pid-mode-btn:hover { color: var(--lp-fg); border-color: var(--lp-fg-3); }
-  .lp-pid-mode-btn.is-active {
-    background: var(--lp-lime); color: var(--lp-ink); border-color: var(--lp-lime); font-weight: 700;
-  }
-
-  /* Diagram SVG & Glyphs */
-  .lp-pid-art { display: block; width: 100%; height: auto; aspect-ratio: 360 / 480; overflow: visible; }
-  .lp-pid-art path, .lp-pid-art rect, .lp-pid-art circle, .lp-pid-art line {
-    vector-effect: non-scaling-stroke;
-  }
-  .lp-pid-grid line { stroke: #181816; stroke-width: 0.75; }
-
-  /* Pipes */
-  .lp-pid-pipes .pipe-main { fill: none; stroke: #c9c9c2; stroke-width: 1.5; }
-  .lp-pid-pipes .pipe-pulse {
-    fill: none; stroke: var(--lp-lime); stroke-width: 1.5;
-    stroke-dasharray: 6 12; stroke-dashoffset: 0; opacity: 0.85;
-  }
-  .lp-pid-pipes .pipe-aux { fill: none; stroke: #5c5c56; stroke-width: 1.1; }
-  .lp-pid-pipes .pipe-cw { fill: none; stroke: #38bdf8; stroke-width: 1.1; }
-  .lp-pid-pipes .pipe-relief { fill: none; stroke: #8a8a82; stroke-width: 1.25; }
-  .lp-pid-pipes .pipe-relief-pulse {
-    fill: none; stroke: var(--lp-crit); stroke-width: 1.25;
-    stroke-dasharray: 4 8; opacity: 0.7;
-  }
-  .lp-pid-pipes .pipe-centerline { fill: none; stroke: #34342f; stroke-width: 0.9; stroke-dasharray: 10 3 2 3; }
-  .lp-pid-pipes .pipe-signal { stroke: #6b7280; stroke-width: 0.85; stroke-dasharray: 2 2.5; }
-  .lp-pid-pipes .pipe-bridle { stroke: #8a8a82; stroke-width: 1.25; }
-
-  /* Equipment */
-  .lp-pid-node { cursor: pointer; outline: none; }
-  .lp-pid-node .equip-body { fill: rgb(255 255 255 / 0.02); stroke: #c9c9c2; stroke-width: 1.4; transition: stroke 150ms ease; }
-  .lp-pid-node .equip-internal { fill: none; stroke: #8a8a82; stroke-width: 1.1; }
-  .lp-pid-node .equip-tag { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.08em; fill: var(--lp-fg-3); }
-  
-  .lp-pid-node:hover .equip-body,
-  .lp-pid-node.is-selected .equip-body { stroke: var(--lp-lime); stroke-width: 1.8; fill: rgb(212 242 74 / 0.05); }
-  .lp-pid-node:hover .equip-tag,
-  .lp-pid-node.is-selected .equip-tag { fill: var(--lp-lime); font-weight: 600; }
-
-  /* Vessel styling */
-  .vessel-shell { fill: rgb(255 255 255 / 0.02); stroke: #c9c9c2; stroke-width: 1.5; transition: stroke 150ms ease; }
-  .vessel-welds { fill: none; stroke: #5c5c56; stroke-width: 0.9; stroke-dasharray: 3 3; }
-  .vessel-skirt { fill: none; stroke: #5c5c56; stroke-width: 1.1; }
-  .vessel-base { fill: #1e1e1a; stroke: #5c5c56; stroke-width: 1; }
-  .vessel-plate { fill: #121210; stroke: #5c5c56; stroke-width: 1; }
-  .vessel-plate-txt { font-family: var(--font-mono); font-size: 8px; font-weight: 600; letter-spacing: 0.1em; fill: var(--lp-fg); }
-  .vessel-liquid-surf { fill: none; stroke: var(--lp-lime); stroke-width: 1; opacity: 0.7; }
-  .nozzle { fill: none; stroke: #c9c9c2; stroke-width: 1.25; }
-  .nozzle-tag { font-family: var(--font-mono); font-size: 7.5px; fill: var(--lp-fg-3); }
-  .manway-flange { fill: #1a1a17; stroke: #c9c9c2; stroke-width: 1.2; }
-  .manway-tag { font-family: var(--font-mono); font-size: 8px; font-weight: 600; fill: var(--lp-lime); }
-
-  .lp-pid-node:hover .vessel-shell,
-  .lp-pid-node.is-selected .vessel-shell { stroke: var(--lp-lime); stroke-width: 1.8; }
-  .lp-pid-node:hover .vessel-plate,
-  .lp-pid-node.is-selected .vessel-plate { stroke: var(--lp-lime); }
-
-  /* Pump */
-  .pump-impeller { fill: none; stroke: #8a8a82; stroke-width: 1.1; }
-  .lp-pid-node:hover .pump-impeller,
-  .lp-pid-node.is-selected .pump-impeller { stroke: var(--lp-lime); }
-
-  /* Valves */
-  .valve-body { fill: #141412; stroke: #c9c9c2; stroke-width: 1.2; }
-  .valve-locked-out { fill: var(--lp-crit); stroke: var(--lp-crit); stroke-width: 1.4; }
-  .loto-padlock { fill: var(--lp-crit); stroke: #ffffff; stroke-width: 0.6; }
-  .valve-tag { font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.06em; fill: var(--lp-fg-3); }
-  .valve-sub { font-family: var(--font-mono); font-size: 6.5px; fill: var(--lp-lime); }
-  .blind-open { fill: transparent; stroke: #c9c9c2; stroke-width: 1.2; }
-  .blind-turned { fill: var(--lp-crit); stroke: var(--lp-crit); stroke-width: 1.2; }
-  .psv-spring { fill: none; stroke: #c9c9c2; stroke-width: 1.1; }
-  .psv-cap { fill: #c9c9c2; }
-  .psv-spec { font-family: var(--font-mono); font-size: 6.5px; fill: var(--lp-crit); font-weight: 600; }
-  .cso-ring { fill: transparent; stroke: #10b981; stroke-width: 1; }
-  .cso-txt { font-family: var(--font-mono); font-size: 6.5px; fill: #10b981; font-weight: 600; }
-  .actuator-body { fill: #181815; stroke: #c9c9c2; stroke-width: 1.2; }
-
-  .lp-pid-node:hover .valve-body,
-  .lp-pid-node.is-selected .valve-body,
-  .lp-pid-node:hover .actuator-body,
-  .lp-pid-node.is-selected .actuator-body { stroke: var(--lp-lime); }
-  .lp-pid-node:hover .valve-tag,
-  .lp-pid-node.is-selected .valve-tag { fill: var(--lp-lime); }
-
-  /* Instrument bubbles */
-  .inst-bubble { fill: var(--lp-bg); stroke: #8a8a82; stroke-width: 1.1; transition: all 120ms ease; }
-  .inst-line { stroke: #5c5c56; stroke-width: 0.8; }
-  .inst-txt-top { font-family: var(--font-mono); font-size: 6.5px; font-weight: 600; fill: var(--lp-fg); }
-  .inst-txt-btm { font-family: var(--font-mono); font-size: 6px; fill: var(--lp-fg-3); }
-  .inst-telemetry { font-family: var(--font-mono); font-size: 7px; font-weight: 600; fill: var(--lp-lime); }
-
-  .lp-pid-node:hover .inst-bubble,
-  .lp-pid-node.is-selected .inst-bubble { stroke: var(--lp-lime); fill: rgb(212 242 74 / 0.08); stroke-width: 1.5; }
-
-  /* Boundary tags */
-  .boundary-lbl { font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.06em; fill: var(--lp-fg-3); }
-
-  /* LOTO Zone & ASME overlays */
-  .lp-pid-loto-zone rect { fill: rgb(239 68 68 / 0.04); stroke: var(--lp-crit); stroke-width: 1.2; stroke-dasharray: 4 3; }
-  .lp-pid-zone-lbl { font-family: var(--font-mono); font-size: 7.5px; font-weight: 600; fill: var(--lp-crit); letter-spacing: 0.08em; }
-  .lp-pid-zone-sub { font-family: var(--font-mono); font-size: 6.5px; fill: var(--lp-crit); }
-  .lp-pid-calc-lbl { font-family: var(--font-mono); font-size: 7px; fill: var(--lp-fg-3); letter-spacing: 0.04em; }
-  .lp-pid-calc-val { font-family: var(--font-mono); font-size: 7.5px; font-weight: 600; fill: var(--lp-lime); letter-spacing: 0.04em; }
-
-  /* Scan & Reticle */
-  .lp-pid-scan { transform: translateY(240px); }
-  .lp-pid-scan .scan-line { stroke: var(--lp-lime); stroke-width: 1; }
-  .lp-pid-scan .scan-tail { fill: url(#pid-scan-tail); opacity: 0; }
-  .lp-pid-scan .scan-lbl { font-family: var(--font-mono); font-size: 7.5px; letter-spacing: 0.1em; fill: var(--lp-lime); }
-  .lp-pid-reticle { transform-box: fill-box; transform-origin: center; }
-  .lp-pid-reticle path { stroke: var(--lp-lime); stroke-width: 1.5; fill: none; }
-
-  /* Pinned regulatory citation */
-  .lp-pid-pin { position: absolute; left: 74%; top: 49%; margin: 0; pointer-events: none; z-index: 2; }
-  .lp-pid-pin .lead { display: block; width: 1px; height: 18px; background: var(--lp-lime); }
-  .lp-pid-pin .box {
-    display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: 190px; transform: translateX(-65%);
-    padding: 6px 8px; border: 1px solid var(--lp-lime); background: var(--lp-bg);
-    font-family: var(--font-mono); font-size: 9.5px; line-height: 1.35; letter-spacing: 0.06em; text-transform: uppercase; color: var(--lp-lime);
-  }
-
-  /* Telemetry HUD at bottom of diagram */
-  .lp-pid-hud {
-    margin-top: 8px; padding: 10px 12px; border: 1px solid var(--lp-line); background: rgb(18 18 15 / 0.85);
-  }
-  .lp-pid-hud-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-  .lp-pid-hud-badge { display: flex; align-items: center; gap: 6px; }
-  .lp-pid-hud-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--lp-lime); }
-  .lp-pid-hud-badge .tag { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--lp-lime); }
-  .lp-pid-hud-badge .type { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.04em; color: var(--lp-fg-3); }
-  .lp-pid-hud-status { font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.06em; color: var(--lp-fg); text-transform: uppercase; }
-  
-  .lp-pid-hud-grid {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px;
-    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--lp-line);
-  }
-  .lp-pid-hud-grid .cell { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
-  .lp-pid-hud-grid .k { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lp-fg-3); }
-  .lp-pid-hud-grid .v { font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--lp-fg); overflow-wrap: anywhere; }
-
-  .lp-pid-hud-note {
-    margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--lp-line);
-    font-size: 0.8rem; line-height: 1.4; color: var(--lp-fg-3);
-  }
-
-  .lp-pid .note {
-    margin: 12px 0 0; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--lp-fg-3); text-align: center;
-  }
-  @media (max-width: 719px) { .lp-pid { max-width: 320px; } }
 
   /* ---- the meta rail ---------------------------------------------------------- */
   .lp-rail { display: flex; flex-direction: column; margin: 0; padding-top: 24px; }
@@ -701,49 +526,9 @@
     .lp-vessel[data-play] .scan .tail { opacity: 1; }
     .lp-vessel[data-play] .scan-label { display: none; }
     .lp-vessel[data-play] .reticle { animation: lp-v-lock 8s linear infinite; }
-    .lp-vessel[data-play] .target path { animation: lp-v-target 8s linear infinite; }
+    .lp-vessel[data-play] .target :is(path, rect, line) { animation: lp-v-target 8s linear infinite; }
     .lp-vessel[data-play] .pin { animation: lp-v-pin 8s linear infinite; }
-    .lp-vessel[data-play='off'] :is(.scan, .reticle, .target path, .pin) { animation-play-state: paused; }
-
-    /* ---- hero PID: continuous flow + 8 s scan clock ---- */
-    .lp-pid[data-play] .pipe-pulse { animation: lp-pid-flow-dash 1.8s linear infinite; }
-    .lp-pid[data-play] .pipe-relief-pulse { animation: lp-pid-relief-dash 2.4s linear infinite; }
-    .lp-pid[data-play] .lp-pid-live-dot { animation: lp-pid-dot-blink 1.8s ease-in-out infinite; }
-    .lp-pid[data-play] .lp-pid-scan { animation: lp-pid-scan 8s linear infinite; }
-    .lp-pid[data-play] .lp-pid-scan .scan-tail { opacity: 1; }
-    .lp-pid[data-play] .lp-pid-scan .scan-lbl { display: none; }
-    .lp-pid[data-play] .lp-pid-reticle { animation: lp-pid-lock 8s linear infinite; }
-    .lp-pid[data-play] .lp-pid-pin { animation: lp-pid-pin 8s linear infinite; }
-    .lp-pid[data-play='off'] :is(.pipe-pulse, .pipe-relief-pulse, .lp-pid-live-dot, .lp-pid-scan, .lp-pid-reticle, .lp-pid-pin) {
-      animation-play-state: paused;
-    }
-
-    @keyframes lp-pid-flow-dash {
-      to { stroke-dashoffset: -18; }
-    }
-    @keyframes lp-pid-relief-dash {
-      to { stroke-dashoffset: 12; }
-    }
-    @keyframes lp-pid-dot-blink {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.35; transform: scale(0.85); }
-    }
-    @keyframes lp-pid-scan {
-      0% { transform: translateY(24px); opacity: 0; }
-      1% { opacity: 1; }
-      20% { transform: translateY(452px); opacity: 1; }
-      20.5%, 100% { transform: translateY(452px); opacity: 0; }
-    }
-    @keyframes lp-pid-lock {
-      0%, 21.5% { opacity: 0; transform: scale(1.4); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
-      25%, 88% { opacity: 1; transform: scale(1); }
-      90%, 100% { opacity: 0; transform: scale(1); }
-    }
-    @keyframes lp-pid-pin {
-      0%, 25% { opacity: 0; }
-      26.5%, 88% { opacity: 1; }
-      90%, 100% { opacity: 0; }
-    }
+    .lp-vessel[data-play='off'] :is(.scan, .reticle, .target :is(path, rect, line), .pin) { animation-play-state: paused; }
     @keyframes lp-v-scan {
       0% { transform: translateY(28px); opacity: 0; }
       1% { opacity: 1; }

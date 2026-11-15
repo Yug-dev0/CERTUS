@@ -39,9 +39,9 @@ export const HERO = {
   title: 'Answers your plant can',
   titleKey: 'prove.',
   lede: 'CERTUS runs the model, the search and the checks on your own hardware, and hands over every answer with its sources, its checks and its record.',
-  // The P&ID is interactive; the page notes its plant subsystem and run citation.
-  vesselNote: 'Interactive P&ID · Crude overhead subsystem · Record #16 citation',
-  pidNote: 'Interactive P&ID · Crude overhead subsystem · Record #16 citation',
+  // The air-gapped compute rack is an illustration; the page notes its hardware enclave and run citation.
+  vesselNote: 'Illustration · Air-gapped compute rack · Label from the recorded run',
+  rackNote: 'Illustration · Air-gapped compute rack · Label from the recorded run',
   primary: { label: 'Open the workbench', href: '/sign-in' },
   how: { label: 'How a run is proved', href: '#proof' },
 } as const
