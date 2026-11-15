@@ -4,6 +4,23 @@ const fs = require('fs');
 const http = require('http');
 const { spawn } = require('child_process');
 
+// Ensure macOS GUI apps launched from Finder/Launchpad have full PATH to Homebrew & binaries
+const homeDir = (app && app.getPath) ? app.getPath('home') : (process.env.HOME || '/Users/yug');
+const extraPaths = [
+  '/opt/homebrew/bin',
+  '/opt/homebrew/sbin',
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+  '/usr/sbin',
+  '/sbin',
+  path.join(homeDir, '.local', 'bin'),
+  path.join(homeDir, '.cargo', 'bin'),
+  path.join(homeDir, '.bun', 'bin'),
+];
+const currentPath = process.env.PATH || '';
+process.env.PATH = Array.from(new Set([...extraPaths, ...currentPath.split(':')])).filter(Boolean).join(':');
+
 let mainWindow = null;
 let apiProcess = null;
 let frontendProcess = null;
@@ -85,6 +102,10 @@ async function ensureOllamaRunning() {
   console.log('[CERTUS] Starting local Ollama engine...');
   try {
     const startScript = path.join(ROOT_DIR, 'scripts', 'start-ollama.sh');
+    const ollamaBin = fs.existsSync('/opt/homebrew/bin/ollama')
+      ? '/opt/homebrew/bin/ollama'
+      : (fs.existsSync('/usr/local/bin/ollama') ? '/usr/local/bin/ollama' : 'ollama');
+
     if (process.platform !== 'win32' && fs.existsSync(startScript)) {
       ollamaProcess = spawn(startScript, ['--tier', 'laptop-16gb'], {
         detached: true,
@@ -92,7 +113,7 @@ async function ensureOllamaRunning() {
         cwd: ROOT_DIR,
       });
     } else {
-      ollamaProcess = spawn('ollama', ['serve'], {
+      ollamaProcess = spawn(ollamaBin, ['serve'], {
         detached: true,
         stdio: 'ignore',
       });
@@ -165,9 +186,13 @@ async function ensureFrontendRunning() {
     return false;
   }
 
+  const npxBin = fs.existsSync('/opt/homebrew/bin/npx')
+    ? '/opt/homebrew/bin/npx'
+    : (fs.existsSync('/usr/local/bin/npx') ? '/usr/local/bin/npx' : 'npx');
+
   try {
     frontendProcess = spawn(
-      'npx',
+      npxBin,
       ['next', 'start', '-H', '127.0.0.1', '-p', '3000'],
       {
         cwd: frontendDir,
