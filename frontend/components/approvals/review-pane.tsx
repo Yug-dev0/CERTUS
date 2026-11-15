@@ -483,6 +483,7 @@ export function ReviewPane({
   onTaskUpdated,
   headingId,
   bodyRef,
+  onSwitchToReviewer,
 }: {
   item: QueueItem
   task: Task | null
@@ -505,6 +506,7 @@ export function ReviewPane({
   onRetryDetail: () => void
   /** A conflict was resolved: the recomputed record replaces the one shown. */
   onTaskUpdated?: (task: Task) => void
+  onSwitchToReviewer?: () => void
   headingId: string
   bodyRef: RefObject<HTMLDivElement | null>
 }) {
@@ -625,10 +627,23 @@ export function ReviewPane({
           </p>
         )}
         {held && canDecide && ownRun && (
-          <p className="mt-2 text-ui text-approval-text">
-            You ran this, so another reviewer or an administrator decides it. The service refuses a
-            submitter&rsquo;s own decision.
-          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-ui text-approval-text">
+            <span>
+              You ran this, so another reviewer or an administrator decides it. The service refuses a
+              submitter&rsquo;s own decision.
+            </span>
+            {onSwitchToReviewer && (
+              <Button
+                variant="secondary"
+                size="sm"
+                ground="paper"
+                onClick={onSwitchToReviewer}
+                className="font-medium"
+              >
+                Switch to Reviewer to approve
+              </Button>
+            )}
+          </div>
         )}
         {held && canDecide && !ownRun && openConflicts.length > 0 && (
           <p className="mt-2 text-ui text-critical-text">
