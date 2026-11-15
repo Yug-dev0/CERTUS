@@ -20,19 +20,17 @@ interface CertusLogoProps {
 }
 
 /*
- * The CERTUS mark: the lock. Four corner brackets closing on a sealed square.
+ * The CERTUS mark: the precision engineering caliper C locked on an ASME diamond proof seal.
  *
- * The brackets are the ones Harness Control draws onto a passage when every
- * claim resting on it is supported, so the mark and the product say
- * "checked" the same way. The square is the seal. The brackets take the text
- * colour; the core takes --mark-core, lime at night and a deep olive by day,
- * where lime on paper would not read.
+ * The outer contour forms the letter C with chamfered 45° industrial edges and measuring
+ * caliper jaws on the open right edge. The centered diamond represents the ASME Code Symbol
+ * Stamp and the mathematical Q.E.D. / cryptographic Ed25519 hash seal ("Answers your plant can prove").
  *
- * Drawn on a 48-unit grid. The stroke is set so it renders about 1.25px at
- * sidebar and tab sizes and thins towards 3px at hero size, which keeps the
- * corners crisp at 16px without turning heavy at 96.
+ * Drawn on a 48-unit grid. The caliper frame takes currentColor (text-foreground),
+ * while the diamond core takes --mark-core (lime #d4f24a at night, deep olive by day).
  */
-const BRACKETS = 'M6 16V6H16M32 6H42V16M42 32V42H32M16 42H6V32'
+const CALIPER_C = 'M38 10H18L10 18V30L18 38H38M38 10V16M38 38V32'
+const DIAMOND_POINTS = '24,15 33,24 24,33 15,24'
 
 export function CertusMark({
   size = 24,
@@ -54,8 +52,8 @@ export function CertusMark({
       aria-hidden
       className={cn('shrink-0', intro && 'hv-mark-intro', className)}
     >
-      <path className="hv-mark-brackets" d={BRACKETS} fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="square" />
-      <rect className="hv-mark-core" x="16" y="16" width="16" height="16" fill={tone === 'mono' ? 'currentColor' : 'var(--mark-core, #d4f24a)'} />
+      <path className="hv-mark-brackets" d={CALIPER_C} fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="square" strokeLinejoin="miter" />
+      <polygon className="hv-mark-core" points={DIAMOND_POINTS} fill={tone === 'mono' ? 'currentColor' : 'var(--mark-core, #d4f24a)'} />
     </svg>
   )
 }

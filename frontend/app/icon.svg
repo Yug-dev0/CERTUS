@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="32" height="32">
   <!--
-    The CERTUS mark at tab size, as in components/certus-logo.tsx: four corner
-    brackets locked on a lime seal. Set on a night tile so it reads in light
-    and dark tab strips alike.
+    The CERTUS mark at tab size: the precision engineering caliper C locked on an ASME diamond proof seal.
+    Set on a dark tile so it reads in light and dark tab strips alike.
   -->
   <rect width="48" height="48" rx="6" fill="#070707" />
-  <path d="M9 18V9H18M30 9H39V18M39 30V39H30M18 39H9V30" fill="none" stroke="#f7f7f4" stroke-width="3.6" stroke-linecap="square" />
-  <rect x="17" y="17" width="14" height="14" fill="#d4f24a" />
+  <path d="M38 10H18L10 18V30L18 38H38M38 10V16M38 38V32" fill="none" stroke="#f7f7f4" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter" />
+  <polygon points="24,15 33,24 24,33 15,24" fill="#d4f24a" />
 </svg>
